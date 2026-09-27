@@ -1,0 +1,18 @@
+ue-mcp:
+  version: 1
+  disable:
+    - landscape
+    - pcg
+    - foliage
+    - audio
+    - widget
+    - gameplay
+    - gas
+    - networking
+    - demo
+  context:
+    strategy: lean
+  contentRoots:
+    - /Game/
+tasks: {}
+flows: {}

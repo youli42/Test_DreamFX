@@ -1,0 +1,97 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.3.9",
+	"FriendlyName": "UE MCP Bridge",
+	"Description": "C++ WebSocket bridge for UE-MCP, providing 1872+ editor actions over the MCP protocol",
+	"Category": "Developer Tools",
+	"CreatedBy": "UE-MCP",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "UE_MCP_BridgeStatus",
+			"Type": "Editor",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
+			"Name": "UE_MCP_Bridge",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "DataValidation",
+			"Enabled": true
+		},
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true
+		},
+		{
+			"Name": "GameplayAbilities",
+			"Enabled": true
+		},
+		{
+			"Name": "Niagara",
+			"Enabled": true
+		},
+		{
+			"Name": "PCG",
+			"Enabled": true
+		},
+		{
+			"Name": "IKRig",
+			"Enabled": true
+		},
+		{
+			"Name": "ControlRig",
+			"Enabled": true
+		},
+		{
+			"Name": "PoseSearch",
+			"Enabled": true
+		},
+		{
+			"Name": "Chooser",
+			"Enabled": true
+		},
+		{
+			"Name": "PropertyBindingUtils",
+			"Enabled": true
+		},
+		{
+			"Name": "Metasound",
+			"Enabled": true
+		},
+		{
+			"Name": "Synthesis",
+			"Enabled": true
+		},
+		{
+			"Name": "Fab",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
+			"Name": "StateTree",
+			"Enabled": true
+		}
+	]
+}
