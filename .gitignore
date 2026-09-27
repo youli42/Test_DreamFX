@@ -1,0 +1,106 @@
+# 默认忽略所有文件，但扫描所有目录。
+*
+!*/
+
+# ===============================
+# 添加：虚幻相关资产
+# ===============================
+
+# 不要忽略仓库根目录下的 git 文件。
+!/.git*
+
+# 不要忽略当前项目的 `.uproject` 文件。
+!/*.uproject
+
+# 不要忽略 source、config 和 plugins 目录。
+!/Source/**
+!/Config/**
+!/Plugins/**
+
+# 忽略插件中的编译产物
+/Plugins/**/Intermediate/**
+/Plugins/**/Binaries/**
+
+# 仅允许 /Content 目录下的 .uasset 和 .umap 文件。
+# 这些文件由 git-lfs 追踪，如果在此添加其他文件，
+# 别忘了也要对其进行追踪。
+!/Content/**/*.uasset
+!/Content/**/*.umap
+
+# 允许 /RawContent 目录下的所有文件。
+# /RawContent 目录下的所有文件都将由 git lfs 管理。
+!/RawContent/**/*
+
+# ===============================
+# 添加：编辑器配置
+# ===============================
+
+!/.vsconfig
+
+# clangd / clang-format 配置（供 clangd LSP 与格式化使用）
+!/.clangd
+!/.clang-format
+
+# ===============================
+# 添加：其AI相关配置文件
+# ===============================
+!/.claude/**/*
+!/.agents/**/*
+!/.dsh/**/*
+!/.opencode/**/*
+
+# OpenCode 会话指令文件
+!/AGENTS.md
+
+# ===============================
+# 添加：其他文件
+# ===============================
+
+# readme
+!/[Rr][Ee][Aa][Dd][Mm][Ee].[Mm][Dd]
+
+# 项目文档
+!/docs/**/*
+
+# 开源协议
+!/LICENSE
+
+# UE MCP 配置文件。注意，这个json文件需要保证使用相对目录
+!/ue-mcp.yml
+!/.mcp.json
+ue-mcp.local.yml
+
+# Dream Shader 文件
+!/DShader/**/*.ds*
+
+# ===============================
+# 忽视：操作系统/平台生成的文件
+# ===============================
+
+# Python
+/**/__pycache__/**/*
+
+# Windows
+ehthumbs.db
+Thumbs.db
+
+# Mac OS X
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.directory
+
+# vim
+[._]*.s[a-w][a-z]
+[._]s[a-w][a-z]
+*.un~
+Session.vim
+.netrwhist
+
+# Visual Studio
+.vs
