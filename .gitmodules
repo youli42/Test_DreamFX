@@ -1,0 +1,3 @@
+[submodule "Plugins/DreamFX"]
+	path = Plugins/DreamFX
+	url = https://github.com/youli42/DreamFX.git
