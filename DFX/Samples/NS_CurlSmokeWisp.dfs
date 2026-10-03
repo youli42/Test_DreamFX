@@ -1,36 +1,42 @@
-// 示例 3 —— GPU 粒子 + 旋度噪声 + HLSL 逃逸舱：一缕缓慢翻卷上升的烟雾。
+// ============================================================================
+//  NS_CurlSmokeWisp —— DreamFX 入门第三课：GPU 粒子与值形态进阶（烟雾）
+// ============================================================================
 //
-// 演示：
-//   * SimTarget = GPU 的发射器（GPU 不支持 Determinism，别和它同用）。
-//   * "开关在前"规则的又一次出现：ColorMode=DirectSet 才把 Color 输入带进图；
-//     PanNoise=true 才把 PanNoiseField 带进图。
-//   * hlsl { } 单表达式：只接受一个 rvalue —— 节点只有一个输出 pin、没有语句体，
-//     写语句 / return 都编不过；多语句逻辑请放进 .dfm 模块（其主体逐字下发）。
-//     类型必须手写：hlsl 块自身不带类型，推断只认字面量。
+//  【本文件教什么】
+//    1. SimTarget = GPU：大规模粒子的选择，以及它的两个约束
+//       （不支持 Determinism；必须手给 FixedBounds，否则 DFX7101 警告）
+//    2. CurlNoiseForce：无散度流场 —— 烟雾"卷起来"而不是乱抖的关键
+//    3. 更多"开关在前"的实例：ColorMode→Color、PanNoise→PanNoiseField
+//    4. hlsl { } 单表达式逃逸舱：淡入淡出在一个 rvalue 里完成
 //
-// 构建：pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/Samples/NS_CurlSmokeWisp.dfs -Force
-// 生成资产：/Game/Samples/Niagara/NS_CurlSmokeWisp
-// 展示地图：/Game/Samples/Map/L_NiagaraShowcase
+//  构建前关闭编辑器：
+//    pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/Samples/NS_CurlSmokeWisp.dfs -Force
+//
+//  生成资产：/Game/Samples/Niagara/NS_CurlSmokeWisp
+//  展示地图：/Game/Samples/Map/L_NiagaraShowcase
+// ============================================================================
 System(Name="Samples/Niagara/NS_CurlSmokeWisp")
 {
     Settings = {
-        WarmupTime  = 2.0;
+        WarmupTime  = 2.0;   // 烟雾要 2 秒才成形，暖机后打开地图即是"烧过一会儿"的状态
         FixedBounds = box(-90, -90, -40, 90, 90, 260);
     }
 
     Emitter Wisp
     {
         Settings = {
-            SimTarget          = GPU;
+            SimTarget          = GPU;   // GPU 模拟：每 tick 的粒子更新跑在 compute shader 上
             AllocationMode     = Fixed;
             PreAllocationCount = 256;
-            // GPU 发射器算不了自己的包围盒（DFX7101）：必须给 FixedBounds，否则会被意外剔除。
+            // GPU 发射器算不了自己的包围盒（DFX7101）：必须手给 FixedBounds，
+            // 否则引擎用默认盒子做剔除，烟雾可能整个消失。
+            // 另外 GPU 与 Determinism 互斥 —— 想要确定性就回到 CPU。
             FixedBounds        = box(-90, -90, -40, 90, 90, 260);
         }
 
         EmitterUpdate = {
             EmitterState();
-            SpawnRate(SpawnRate = 40.0);
+            SpawnRate(SpawnRate = 40.0);   // 慢慢冒，每秒 40 颗
         }
 
         ParticleSpawn = {
@@ -41,7 +47,7 @@ System(Name="Samples/Niagara/NS_CurlSmokeWisp")
                 LifetimeMin  = 1.6,
                 LifetimeMax  = 2.6,
                 ColorMode    = DirectSet,     // 开关先写：DirectSet 让 Color 输入存在
-                Color        = (0.55, 0.55, 0.58, 0.30),
+                Color        = (0.55, 0.55, 0.58, 0.30),   // alpha 只有 0.3，烟要半透明
                 SpriteSizeMode = Uniform,     // 同理：Uniform 让 UniformSpriteSize 存在
                 UniformSpriteSize = 9.0
             );
@@ -53,7 +59,11 @@ System(Name="Samples/Niagara/NS_CurlSmokeWisp")
             ParticleState();
 
             // 旋度噪声：无散度流场，烟雾是"卷"起来而不是乱抖。
-            // PanNoise 让噪声场随时间平移，烟才往上飘。
+            // PanNoise=true 让噪声场随 PanNoiseField 平移 —— 烟才会整体往上飘。
+            // 又见"开关在前"：PanNoise 打开后 PanNoiseField 这个输入才存在。
+            // 小知识：Niagara 输入名带空格/斜杠时写不成普通标识符，比如本模块的
+            // `NoiseQuality/Cost` —— 要写就用反引号包起来：`NoiseQuality/Cost` = Low，
+            // 或者干脆不写、吃默认值（本文件就是这么做的）。
             Update/Forces/V2/CurlNoiseForce(
                 NoiseStrength  = 110.0,
                 NoiseFrequency = 0.15,
@@ -63,7 +73,7 @@ System(Name="Samples/Niagara/NS_CurlSmokeWisp")
             Drag(Drag = 1.2);
             SolveForcesAndVelocity();
 
-            // 烟越老越大
+            // 烟越老越大：0.4 → 1.6 倍
             ScaleSpriteSize(
                 ScaleSpriteSizeMode = Uniform,
                 UniformScaleFactor  = FloatFromCurve(
@@ -75,7 +85,12 @@ System(Name="Samples/Niagara/NS_CurlSmokeWisp")
                 )
             );
 
-            // 淡入 + 淡出，全部在一个表达式里完成
+            // 【HLSL 逃逸舱】一个 rvalue，读参数用带命名空间的全名。
+            // 为什么只能一个表达式？它降级成一个只有一个输出 pin 的自定义节点，
+            // 没有语句体放局部变量和 return —— 写语句会报 DFX4030。
+            // 多行逻辑请写 .dfm 模块（其 Body 逐字下发，不受此限制）。
+            // 类型必须手写：hlsl 块自身不带类型，类型推断只认字面量。
+            // 这一个表达式同时完成淡入（前 2/3）和淡出（后半段）：
             Color Particles.Color = hlsl {
                 float4(Particles.Color.rgb,
                        Particles.Color.a

@@ -1,27 +1,37 @@
-// 示例 2 —— 参数化：魔法喷泉（用户参数 + 链接参数 + 动态输入 + 自定义属性）。
+// ============================================================================
+//  NS_MagicFountain —— DreamFX 入门第二课：参数化（魔法喷泉）
+// ============================================================================
 //
-// 演示：
-//   * Properties 块声明 User.* 用户参数，带 Group / SortPriority 元数据，
-//     出现在 Niagara 详情面板；蓝图可在运行时覆盖。
-//   * 模块输入直接链接 User.*：float 链 float、Color 链 Color ——
-//     链接不做隐式转换，float 参数塞进 int 输入是 DFX4027（真 bug，不是吹毛求疵）。
-//   * 动态输入嵌套内联表达式：RandomRangeFloat(Minimum = User.LaunchSpeed * 0.75, ...)。
-//     内联算术只有 L6 白名单：+ - * / % 与少数内置函数。
-//   * 连续赋值折叠成一个 Set Parameters 模块（L2）；首赋值声明新属性，
-//     值不是字面量时必须写出类型。
-//   * 渲染器 Bind 语句：把渲染器输入绑定到粒子属性。
+//  【本文件教什么】
+//    1. Properties 块：声明 User.* 用户参数（蓝图/详情面板可调，便于复用）
+//    2. 链接参数：模块输入直接连 User.* —— 类型必须严格一致（DFX4027）
+//    3. 动态输入嵌套内联表达式：RandomRangeFloat(Minimum = User.LaunchSpeed * 0.75, …)
+//    4. 赋值语句：连续赋值折叠成一个 Set Parameters（L2），首赋值声明新属性
+//    5. 渲染器 Bind：把渲染器输入绑到粒子属性上
+//    6. 力的组合：重力 + 向心引力 = 抛物线被"拽回"喷口的魔法感
 //
-// 构建：pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/Samples/NS_MagicFountain.dfs -Force
-// 生成资产：/Game/Samples/Niagara/NS_MagicFountain
-// 展示地图：/Game/Samples/Map/L_NiagaraShowcase
+//  构建前关闭编辑器：
+//    pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/Samples/NS_MagicFountain.dfs -Force
+//
+//  生成资产：/Game/Samples/Niagara/NS_MagicFountain
+//  展示地图：/Game/Samples/Map/L_NiagaraShowcase
+// ============================================================================
 System(Name="Samples/Niagara/NS_MagicFountain")
 {
+    // 系统级 Settings：WarmupTime 让系统在显示前先空转暖机 0.8 秒，
+    // 避免打开地图第一秒粒子稀稀拉拉；FixedBounds 帮渲染器做剔除。
     Settings = {
         WarmupTime  = 0.8;   // 先暖机再显示，避免打开第一秒的突刺
         FixedBounds = box(-120, -120, -30, 120, 120, 340);
     }
 
-    // 用户参数：在编辑器里选中系统即可调；运行时由蓝图 SetVariable 覆盖。
+    // ------------------------------------------------------------------
+    // 用户参数：出现在 Niagara 详情面板（按 Group 分组、SortPriority 排序），
+    // 蓝图运行时可用 UNiagaraComponent::SetVariableFloat 等覆盖 —— 这就是
+    // "一个特效资产适配多种场景"的正规做法。
+    // 注意：Group / SortPriority 只保留在源码里，外部编辑 API 的用户变量
+    // 结构没有元数据字段可写（构建会提示 DFX5099，属预期）。
+    // ------------------------------------------------------------------
     Properties = {
         float SpawnPerSecond = 140.0                   [ Group="发射"; SortPriority=10 ];
         float LaunchSpeed    = 480.0                   [ Group="发射"; SortPriority=20 ];
@@ -35,18 +45,22 @@ System(Name="Samples/Niagara/NS_MagicFountain")
     Emitter Drops
     {
         Settings = {
-            SimTarget          = CPU;
+            SimTarget          = CPU;      // CPU 模拟：支持 Determinism，粒子数几百级毫无压力
             AllocationMode     = Fixed;
             PreAllocationCount = 512;
-            // 加了随机性就想可复现（DFX7103）：Determinism + 固定种子，每次播放一模一样；
-            // 游戏里想要"每局不同"，删掉这两行即可。
+            // 加了随机性又想要可复现（lint 会发 DFX7103 提醒）：Determinism + 固定种子，
+            // 每次播放一模一样。游戏里想要"每局不同"，删掉这两行即可。
             Determinism        = true;
             RandomSeed         = 2024;
         }
 
         EmitterUpdate = {
-            // 不传输入 = 系统级生命周期 + 无限循环：喷泉就该一直喷。
+            // 不传任何输入 = 系统级生命周期 + 无限循环：喷泉就该一直喷。
+            // （对比 NS_HelloBurst.dfs：那里用 LifeCycleMode=Self 自己管循环。）
             EmitterState();
+            // 持续发射：每秒 User.SpawnPerSecond 颗。SpawnRate 是 NiagaraFloat，
+            // 链接 float 用户参数正好 —— 链接不做任何隐式转换：
+            // float 参数塞进 int 输入会被 DFX4027 拒绝，那是真 bug，不是吹毛求疵。
             SpawnRate(SpawnRate = User.SpawnPerSecond);
         }
 
@@ -58,45 +72,54 @@ System(Name="Samples/Niagara/NS_MagicFountain")
                 LifetimeMin    = 0.8,
                 LifetimeMax    = 1.4,
                 ColorMode      = RandomRange,
-                ColorMinimum   = User.WaterTint,
+                ColorMinimum   = User.WaterTint,   // Color 链接 Color，同样类型严格
                 ColorMaximum   = User.FoamTint,
                 SpriteSizeMode = RandomUniform,
-                // 内联表达式直接落在输入上
+                // 内联表达式直接落在输入上。算术只有 L6 白名单：
+                // + - * / %、一元负号，和 normalize/saturate/clamp/lerp/frac/min/max/
+                // abs/floor/ceil/pow/sqrt/dot/cross/length 这几个内置函数。
+                // 白名单外的写法是 DFX4031 —— 边界是有意设计的，加函数是设计决定。
                 UniformSpriteSizeMin = User.DropSize * 0.6,
                 UniformSpriteSizeMax = User.DropSize
             );
 
-            SystemLocation(Offset = (0, 0, 10));
+            SystemLocation(Offset = (0, 0, 10));   // 从喷口（_actor 上方 10cm）出生
 
             AddVelocityInCone(
                 ConeAxis         = (0, 0, 1),
                 ConeAngle        = 22.0,
-                // 动态输入自己的输入还能再嵌表达式 —— 整条链是一次解析完的写路径
+                // 动态输入自己的输入还能再嵌表达式 —— 整条嵌套链在改任何东西之前
+                // 先完整解析一遍，中途失败不会留下半个改动的资产。
                 VelocityStrength = RandomRangeFloat(
                                        Minimum = User.LaunchSpeed * 0.75,
                                        Maximum = User.LaunchSpeed
                                    )
             );
 
-            // 自定义属性：首赋值声明它（值是动态输入，类型必须写出来）。
-            // 下面这条会和 ParticleUpdate 里的赋值各自成组；模块调用会打断折叠。
+            // 自定义属性：首赋值声明它（值是动态输入、不是字面量 → 类型必须手写，
+            // 因为类型推断只认字面量）。命名空间随你起：Particles.FX.Spin。
+            // 连续赋值会折叠成同一个 Set Parameters 模块（L2）；
+            // 中间插入任何模块调用都会打断折叠、开新组。
             float Particles.FX.Spin = RandomRangeFloat(Minimum = -180.0, Maximum = 180.0);
         }
 
         ParticleUpdate = {
-            ParticleState();
+            ParticleState();     // 提供 NormalizedAge，给下面的曲线用
 
             GravityForce(Gravity = (0, 0, -980));
-            // 向心引力把抛物线拽回喷口 —— 点名 V2：短名 PointAttractionForce 有两个匹配，会被拒。
+            // 向心引力把抛物线拽回喷口 —— 魔法感的来源。
+            // 短名 PointAttractionForce 命中新旧两个模块会被拒（DFX3003），
+            // 所以点名 Update/Forces/V2/PointAttractionForce。
             Update/Forces/V2/PointAttractionForce(
                 AttractionStrength = User.PullStrength,
-                AttractionRadius   = 80.0,
+                AttractionRadius   = 80.0,     // 只有飞进这个半径的粒子才受引力
                 UseFalloff         = true,
                 FalloffExponent    = 1.5
             );
             Drag(Drag = 0.8);
             SolveForcesAndVelocity();
 
+            // 水滴从略小涨到最大再缩小：曲线中段手调了切线（Arrive/Leave）。
             ScaleSpriteSize(
                 ScaleSpriteSizeMode = Uniform,
                 UniformScaleFactor  = FloatFromCurve(
@@ -110,14 +133,17 @@ System(Name="Samples/Niagara/NS_MagicFountain")
             );
         }
 
+        // 渲染器属性是 schema 驱动的：写错名字会收到真实属性列表（L8）。
+        // Bind 是独立语法（不是属性赋值），把渲染器输入绑到粒子属性上 ——
+        // 绑定结构里缓存着显示名/数据集名等，只有它自己的写入路径能构造完整。
         SpriteRenderer Core
         {
-            FacingMode = FaceCamera;
+            FacingMode = FaceCamera;    // 精灵始终面向相机
             SortMode   = ViewDepth;
 
             Bind Color          -> Particles.Color;
             Bind SpriteSize     -> Particles.SpriteSize;
-            Bind SpriteRotation -> Particles.FX.Spin;
+            Bind SpriteRotation -> Particles.FX.Spin;   // 绑到自定义属性上
         }
     }
 }

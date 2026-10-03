@@ -1,67 +1,111 @@
-// 示例 1 —— 入门：一个最小但完整的 DreamFX 系统（爆裂火光）。
+// ============================================================================
+//  NS_HelloBurst —— DreamFX 入门第一课：语言骨架
+// ============================================================================
 //
-// 演示：
-//   * 语言骨架：System > Emitter > 四个执行堆栈
-//     （EmitterUpdate / ParticleSpawn / ParticleUpdate / SpriteRenderer）
-//   * 静态开关的"先写开关、再写被它隐藏的输入"规则：
-//     LifeCycleMode=Self 打开 LoopBehavior，LoopBehavior=Once 打开 LoopDuration。
-//     顺序写反会得到 DFX5021（输入被隐藏 / EditCondition 为假）。
-//   * curve { } 曲线字面量 + FloatFromCurve 动态输入，做尺寸随生命缩放。
+//  【这是什么】
+//  DreamFXLang 源文件（.dfs）。DreamFX 的理念是"文本即唯一事实"：写文本，
+//  构建器把文本变成 Niagara 系统资产（.uasset）。资产里带着 provenance 戳
+//  （由哪份源码生成、哈希多少），所以"改了源码忘了重建"能被 verify 抓出来。
 //
-// 构建（编辑器关闭时运行）：
-//   pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/Samples/NS_HelloBurst.dfs -Force
+//  【怎么构建】（构建前关闭编辑器：两个进程写同一批包，后保存的赢）
+//    pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/Samples/NS_HelloBurst.dfs -Force
+//    pwsh -File Plugins/DreamFX/.skill/dfx.ps1 verify -All     ← 漂移检查，CI 用
 //
-// 生成资产：/Game/Samples/Niagara/NS_HelloBurst
-// 展示地图：/Game/Samples/Map/L_NiagaraShowcase
+//  生成资产：/Game/Samples/Niagara/NS_HelloBurst
+//  展示地图：/Game/Samples/Map/L_NiagaraShowcase
+//
+//  【本文件教什么】
+//    1. 语言骨架：System → Emitter → 四个执行堆栈
+//    2. 静态开关：先写开关，再写被它"解锁"的输入（顺序错 = DFX5021）
+//    3. 模块短名歧义：用"部分路径"精确点名（报 DFX3003 时会列出全部候选）
+//    4. 曲线字面量 curve { } + 动态输入 FloatFromCurve
+//
+//  【DreamFX 值的六种写法】（三个示例合起来各演示一部分）
+//    450.0 / 24 / true / (1,0,0,1)          字面量
+//    Once / Complete / Uniform              枚举 —— 写"标签"，不是内部名
+//    User.Speed / Particles.Color           链接参数（ Niagara 输入名的空格全删掉）
+//    RandomRangeFloat(Minimum=1, Maximum=2) 动态输入（可无限嵌套）
+//    User.Speed * 0.6                       内联表达式（只有 L6 白名单算子可用）
+//    hlsl { ... } / curve { ... }           逃逸舱：原生 HLSL 单表达式 / 曲线数据接口
+//
+//  【诊断码速查】（报错先看区间）
+//    DFX1xxx 词法   DFX2xxx 语法   DFX3xxx 名字/资产解析   DFX4xxx 类型
+//    DFX5xxx 生成   DFX6xxx Niagara 自身编译事件   DFX7xxx 漂移验证与 lint
+// ============================================================================
 System(Name="Samples/Niagara/NS_HelloBurst")
 {
-    // 没写 Settings / Properties：系统级堆栈保持引擎默认 —— 不拥有即不改动。
+    // ------------------------------------------------------------------
+    // Emitter（发射器）= 一股粒子流。名字是稳定键：Niagara 把字面量输入按
+    // "发射器前缀"存储，直接改 emitter 名会让它们全部丢失 —— 构建宁可拒绝
+    // 重名也不会悄悄改名。真要改名用：dfx.ps1 rename <资产>:<旧名>:<新名>
+    // ------------------------------------------------------------------
+    // 没写 Settings / Properties：系统级堆栈保持引擎默认 —— 不拥有即不改动，
+    // 引擎默认的 SystemState 模块被保留（构建会用 DFX5003 提示一声）。
     Emitter Sparks
     {
+        // EmitterUpdate：发射器级逻辑，每个系统 tick 跑一次 —— 决定"发多少、何时发"。
         EmitterUpdate = {
-            // 自管理生命周期。枚举直接写"标签"（Infinite / Once），不是内部名。
-            // Infinite = 无限循环，放进展示地图每 0.5 秒爆一次；改成 Once 即一次性爆裂。
+            // EmitterState 管生命周期，也是"静态开关"最典型的地方。
+            // 静态开关 = 编译期选择，它决定哪些输入"存在于图中"：
+            //   * LifeCycleMode = Self      ← 打开下面的 LoopBehavior
+            //   * LoopBehavior = Infinite   ← 再打开 LoopDuration
+            // 源码顺序就是写入顺序：把 LoopDuration 写在 LoopBehavior 前面，
+            // 会得到 DFX5021（"输入被隐藏 / EditCondition 为假"）。
+            // 枚举直接写标签：Infinite / Once / Multiple；Complete / Kill / Continue。
             EmitterState(
                 LifeCycleMode    = Self,
-                LoopBehavior     = Infinite,
+                LoopBehavior     = Infinite,   // 改成 Once 就是一次性的命中火花
                 InactiveResponse = Complete,
                 LoopDuration     = 0.5
             );
-            // 每圈开始的瞬间爆出 32 颗，0.5 秒一圈，预览直观。
+            // 瞬时爆发：每圈开始（SpawnTime=0）瞬间爆出 32 颗。
             SpawnBurst_Instantaneous(SpawnCount = 32, SpawnTime = 0.0);
         }
 
+        // ParticleSpawn：每颗粒子出生时执行一次 —— 决定"生下来什么样"。
         ParticleSpawn = {
-            // 出生点撒在小球里，避免叠成一个点。
-            // 部分路径锚定在末尾：精确选中 V2，避开旧版同名模块（短名会因歧义被拒）。
+            // 模块短名若命中多个资产会被拒（DFX3003 列出候选）。
+            // "部分路径"锚定在末尾：Spawn/Location/V2/SphereLocation 精确选中
+            // V2 版，而不是旧版兄弟 —— 这是消歧义的标准手法。
             Spawn/Location/V2/SphereLocation(SphereRadius = 4.0);
 
+            // 出生初始化。V2 模块的每个值输入都藏在某个模式枚举后面：
+            //   LifetimeMode   = Random      解锁 LifetimeMin / LifetimeMax（DirectSet 则解锁 Lifetime）
+            //   ColorMode      = RandomRange 解锁 ColorMinimum / ColorMaximum
+            //   SpriteSizeMode = RandomUniform 解锁 UniformSpriteSizeMin / Max
+            // 旧版 Spawn/Initialization/InitializeParticle 已弃用，用它会报 DFX6004。
             Spawn/Initialization/V2/InitializeParticle(
                 LifetimeMode   = Random,
                 LifetimeMin    = 0.4,
                 LifetimeMax    = 0.8,
                 ColorMode      = RandomRange,
-                ColorMinimum   = (1.0, 0.30, 0.05, 1.0),
+                ColorMinimum   = (1.0, 0.30, 0.05, 1.0),   // Color 字面量 = (r, g, b, a)
                 ColorMaximum   = (1.0, 0.80, 0.30, 1.0),
                 SpriteSizeMode = RandomUniform,
                 UniformSpriteSizeMin = 2.0,
                 UniformSpriteSizeMax = 5.0
             );
 
+            // 出生点 = 系统在关卡里的位置；可用 Offset 偏移，另有 CoordinateSpace 可选。
             SystemLocation();
         }
 
+        // ParticleUpdate：每颗粒子每个 tick 执行一次 —— 决定"活着的时候怎么动"。
         ParticleUpdate = {
-            // ScaleSpriteSize 依赖 NormalizedAge，由 ParticleState 提供，必须先调用它；
-            // 否则曲线永远取到 0 —— 无声的错误，只有编辑器堆栈面板能看出来。
+            // 提供 Particles.Age / NormalizedAge（生命进度 0 → 1）。
+            // 下面的 ScaleSpriteSize 依赖 NormalizedAge：少了这一行，曲线永远取 0 ——
+            // 一个无声的错误，无头构建抓不到（只有编辑器堆栈面板看得到），新手最常见。
             ParticleState();
 
+            // 力的套路：先施力，最后 SolveForcesAndVelocity 统一求解。
             GravityForce(Gravity = (0, 0, -500));
-            Drag(Drag = 1.0);
+            Drag(Drag = 1.0);                    // 旧名 DragForce 已弃用（DFX6004）
             SolveForcesAndVelocity();
 
-            // 尺寸随生命平滑缩掉：UniformScaleFactor 接一个动态输入，
-            // 它自己又吃一个 curve { } 数据接口字面量。
+            // 尺寸随生命缩放：UniformScaleFactor 接一个"动态输入"，
+            // 动态输入自己又吃一个 curve { } 数据接口字面量 —— 值形态可以逐层嵌套。
+            // 曲线键语法：时间 -> 值 [ Interp=Linear|Cubic; Arrive=…; Leave=… ];
+            // 写出切线，导出的资产才能完整还原手调形状（往返不丢信息）。
             ScaleSpriteSize(
                 ScaleSpriteSizeMode = Uniform,
                 UniformScaleFactor  = FloatFromCurve(
@@ -69,12 +113,13 @@ System(Name="Samples/Niagara/NS_HelloBurst")
                         0.0 -> 1.0;
                         1.0 -> 0.0 [ Interp=Linear ];
                     },
-                    CurveIndex = Particles.NormalizedAge
+                    CurveIndex = Particles.NormalizedAge    // 曲线横轴 = 生命进度
                 )
             );
         }
 
-        // 空渲染器块 = 引擎默认材质 + 默认绑定，先跑起来再说。
+        // 渲染器：空块 = 引擎默认材质 + 默认绑定（DFX5004 提示一声）。
+        // 想自定义绑定和朝向，看 NS_MagicFountain.dfs 的 Bind 语句。
         SpriteRenderer Core
         {
         }
