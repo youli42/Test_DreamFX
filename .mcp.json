@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ue-mcp": {
+      "command": "npx",
+      "args": [
+        "ue-mcp",
+        "./Test_DreamFX.uproject"
+      ]
+    }
+  }
+}
