@@ -3,7 +3,7 @@
 // ============================================================================
 //
 //  【本文件教什么】
-//    1. Properties 块：声明 User.* 用户参数（蓝图/详情面板可调，便于复用）
+//    1. Properties 块：Group("名") { ... } 作用域声明 User.* 用户参数（蓝图/详情面板可调）
 //    2. 链接参数：模块输入直接连 User.* —— 类型必须严格一致（DFX4027）
 //    3. 动态输入嵌套内联表达式：RandomRangeFloat(Minimum = User.LaunchSpeed * 0.75, …)
 //    4. 赋值语句：连续赋值折叠成一个 Set Parameters（L2），首赋值声明新属性
@@ -26,20 +26,26 @@ System(Name="Samples/Niagara/NS_MagicFountain")
     }
 
     // ------------------------------------------------------------------
-    // 用户参数：出现在 Niagara 详情面板（按 Group 分组、SortPriority 排序），
-    // 蓝图运行时可用 UNiagaraComponent::SetVariableFloat 等覆盖 —— 这就是
-    // "一个特效资产适配多种场景"的正规做法。
-    // 注意：Group / SortPriority 只保留在源码里，外部编辑 API 的用户变量
-    // 结构没有元数据字段可写（构建会提示 DFX5099，属预期）。
+    // 用户参数：Group("名") { ... } 作用域（与 DreamShader 的语法保持一致）——
+    // 组内参数继承组名，并按声明顺序自动分配 SortPriority（步进 10，整块共享
+    // 一个计数器；显式写的 [ SortPriority=.. ] 优先且不占自动槽位；嵌套组用
+    // "|" 组合成子分类）。元数据只保留在源码里（构建会提示 DFX5099，属预期）。
+    // 详情面板可调；蓝图运行时 UNiagaraComponent::SetVariableFloat 等覆盖。
     // ------------------------------------------------------------------
     Properties = {
-        float SpawnPerSecond = 140.0                   [ Group="发射"; SortPriority=10 ];
-        float LaunchSpeed    = 480.0                   [ Group="发射"; SortPriority=20 ];
-        float DropSize       = 4.5                     [ Group="外观"; SortPriority=10 ];
-        Color WaterTint      = (0.35, 0.68, 1.00, 1.0) [ Group="外观"; SortPriority=20 ];
-        Color FoamTint       = (0.85, 0.95, 1.00, 1.0) [ Group="外观"; SortPriority=30 ];
-        float PullStrength   = 700.0
-            [ Group="物理"; Description="把水滴往喷口方向拉回的向心引力；设 0 就是普通抛物线喷泉" ];
+        Group("发射") {
+            float SpawnPerSecond = 140.0;
+            float LaunchSpeed    = 480.0;
+        }
+        Group("外观") {
+            float DropSize  = 4.5;
+            Color WaterTint = (0.35, 0.68, 1.00, 1.0);
+            Color FoamTint  = (0.85, 0.95, 1.00, 1.0);
+        }
+        Group("物理") {
+            float PullStrength = 700.0
+                [ Description="把水滴往喷口方向拉回的向心引力；设 0 就是普通抛物线喷泉" ];
+        }
     }
 
     Emitter Drops
