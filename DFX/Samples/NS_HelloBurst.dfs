@@ -1,0 +1,82 @@
+// 示例 1 —— 入门：一个最小但完整的 DreamFX 系统（爆裂火光）。
+//
+// 演示：
+//   * 语言骨架：System > Emitter > 四个执行堆栈
+//     （EmitterUpdate / ParticleSpawn / ParticleUpdate / SpriteRenderer）
+//   * 静态开关的"先写开关、再写被它隐藏的输入"规则：
+//     LifeCycleMode=Self 打开 LoopBehavior，LoopBehavior=Once 打开 LoopDuration。
+//     顺序写反会得到 DFX5021（输入被隐藏 / EditCondition 为假）。
+//   * curve { } 曲线字面量 + FloatFromCurve 动态输入，做尺寸随生命缩放。
+//
+// 构建（编辑器关闭时运行）：
+//   pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/Samples/NS_HelloBurst.dfs -Force
+//
+// 生成资产：/Game/Samples/Niagara/NS_HelloBurst
+// 展示地图：/Game/Samples/Map/L_NiagaraShowcase
+System(Name="Samples/Niagara/NS_HelloBurst")
+{
+    // 没写 Settings / Properties：系统级堆栈保持引擎默认 —— 不拥有即不改动。
+    Emitter Sparks
+    {
+        EmitterUpdate = {
+            // 自管理生命周期。枚举直接写"标签"（Infinite / Once），不是内部名。
+            // Infinite = 无限循环，放进展示地图每 0.5 秒爆一次；改成 Once 即一次性爆裂。
+            EmitterState(
+                LifeCycleMode    = Self,
+                LoopBehavior     = Infinite,
+                InactiveResponse = Complete,
+                LoopDuration     = 0.5
+            );
+            // 每圈开始的瞬间爆出 32 颗，0.5 秒一圈，预览直观。
+            SpawnBurst_Instantaneous(SpawnCount = 32, SpawnTime = 0.0);
+        }
+
+        ParticleSpawn = {
+            // 出生点撒在小球里，避免叠成一个点。
+            // 部分路径锚定在末尾：精确选中 V2，避开旧版同名模块（短名会因歧义被拒）。
+            Spawn/Location/V2/SphereLocation(SphereRadius = 4.0);
+
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode   = Random,
+                LifetimeMin    = 0.4,
+                LifetimeMax    = 0.8,
+                ColorMode      = RandomRange,
+                ColorMinimum   = (1.0, 0.30, 0.05, 1.0),
+                ColorMaximum   = (1.0, 0.80, 0.30, 1.0),
+                SpriteSizeMode = RandomUniform,
+                UniformSpriteSizeMin = 2.0,
+                UniformSpriteSizeMax = 5.0
+            );
+
+            SystemLocation();
+        }
+
+        ParticleUpdate = {
+            // ScaleSpriteSize 依赖 NormalizedAge，由 ParticleState 提供，必须先调用它；
+            // 否则曲线永远取到 0 —— 无声的错误，只有编辑器堆栈面板能看出来。
+            ParticleState();
+
+            GravityForce(Gravity = (0, 0, -500));
+            Drag(Drag = 1.0);
+            SolveForcesAndVelocity();
+
+            // 尺寸随生命平滑缩掉：UniformScaleFactor 接一个动态输入，
+            // 它自己又吃一个 curve { } 数据接口字面量。
+            ScaleSpriteSize(
+                ScaleSpriteSizeMode = Uniform,
+                UniformScaleFactor  = FloatFromCurve(
+                    FloatCurve = curve {
+                        0.0 -> 1.0;
+                        1.0 -> 0.0 [ Interp=Linear ];
+                    },
+                    CurveIndex = Particles.NormalizedAge
+                )
+            );
+        }
+
+        // 空渲染器块 = 引擎默认材质 + 默认绑定，先跑起来再说。
+        SpriteRenderer Core
+        {
+        }
+    }
+}

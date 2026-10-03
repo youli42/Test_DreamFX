@@ -1,0 +1,123 @@
+// 示例 2 —— 参数化：魔法喷泉（用户参数 + 链接参数 + 动态输入 + 自定义属性）。
+//
+// 演示：
+//   * Properties 块声明 User.* 用户参数，带 Group / SortPriority 元数据，
+//     出现在 Niagara 详情面板；蓝图可在运行时覆盖。
+//   * 模块输入直接链接 User.*：float 链 float、Color 链 Color ——
+//     链接不做隐式转换，float 参数塞进 int 输入是 DFX4027（真 bug，不是吹毛求疵）。
+//   * 动态输入嵌套内联表达式：RandomRangeFloat(Minimum = User.LaunchSpeed * 0.75, ...)。
+//     内联算术只有 L6 白名单：+ - * / % 与少数内置函数。
+//   * 连续赋值折叠成一个 Set Parameters 模块（L2）；首赋值声明新属性，
+//     值不是字面量时必须写出类型。
+//   * 渲染器 Bind 语句：把渲染器输入绑定到粒子属性。
+//
+// 构建：pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/Samples/NS_MagicFountain.dfs -Force
+// 生成资产：/Game/Samples/Niagara/NS_MagicFountain
+// 展示地图：/Game/Samples/Map/L_NiagaraShowcase
+System(Name="Samples/Niagara/NS_MagicFountain")
+{
+    Settings = {
+        WarmupTime  = 0.8;   // 先暖机再显示，避免打开第一秒的突刺
+        FixedBounds = box(-120, -120, -30, 120, 120, 340);
+    }
+
+    // 用户参数：在编辑器里选中系统即可调；运行时由蓝图 SetVariable 覆盖。
+    Properties = {
+        float SpawnPerSecond = 140.0                   [ Group="发射"; SortPriority=10 ];
+        float LaunchSpeed    = 480.0                   [ Group="发射"; SortPriority=20 ];
+        float DropSize       = 4.5                     [ Group="外观"; SortPriority=10 ];
+        Color WaterTint      = (0.35, 0.68, 1.00, 1.0) [ Group="外观"; SortPriority=20 ];
+        Color FoamTint       = (0.85, 0.95, 1.00, 1.0) [ Group="外观"; SortPriority=30 ];
+        float PullStrength   = 700.0
+            [ Group="物理"; Description="把水滴往喷口方向拉回的向心引力；设 0 就是普通抛物线喷泉" ];
+    }
+
+    Emitter Drops
+    {
+        Settings = {
+            SimTarget          = CPU;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 512;
+            // 加了随机性就想可复现（DFX7103）：Determinism + 固定种子，每次播放一模一样；
+            // 游戏里想要"每局不同"，删掉这两行即可。
+            Determinism        = true;
+            RandomSeed         = 2024;
+        }
+
+        EmitterUpdate = {
+            // 不传输入 = 系统级生命周期 + 无限循环：喷泉就该一直喷。
+            EmitterState();
+            SpawnRate(SpawnRate = User.SpawnPerSecond);
+        }
+
+        ParticleSpawn = {
+            Spawn/Location/V2/SphereLocation(SphereRadius = 6.0);
+
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode   = Random,
+                LifetimeMin    = 0.8,
+                LifetimeMax    = 1.4,
+                ColorMode      = RandomRange,
+                ColorMinimum   = User.WaterTint,
+                ColorMaximum   = User.FoamTint,
+                SpriteSizeMode = RandomUniform,
+                // 内联表达式直接落在输入上
+                UniformSpriteSizeMin = User.DropSize * 0.6,
+                UniformSpriteSizeMax = User.DropSize
+            );
+
+            SystemLocation(Offset = (0, 0, 10));
+
+            AddVelocityInCone(
+                ConeAxis         = (0, 0, 1),
+                ConeAngle        = 22.0,
+                // 动态输入自己的输入还能再嵌表达式 —— 整条链是一次解析完的写路径
+                VelocityStrength = RandomRangeFloat(
+                                       Minimum = User.LaunchSpeed * 0.75,
+                                       Maximum = User.LaunchSpeed
+                                   )
+            );
+
+            // 自定义属性：首赋值声明它（值是动态输入，类型必须写出来）。
+            // 下面这条会和 ParticleUpdate 里的赋值各自成组；模块调用会打断折叠。
+            float Particles.FX.Spin = RandomRangeFloat(Minimum = -180.0, Maximum = 180.0);
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+
+            GravityForce(Gravity = (0, 0, -980));
+            // 向心引力把抛物线拽回喷口 —— 点名 V2：短名 PointAttractionForce 有两个匹配，会被拒。
+            Update/Forces/V2/PointAttractionForce(
+                AttractionStrength = User.PullStrength,
+                AttractionRadius   = 80.0,
+                UseFalloff         = true,
+                FalloffExponent    = 1.5
+            );
+            Drag(Drag = 0.8);
+            SolveForcesAndVelocity();
+
+            ScaleSpriteSize(
+                ScaleSpriteSizeMode = Uniform,
+                UniformScaleFactor  = FloatFromCurve(
+                    FloatCurve = curve {
+                        0.0 -> 0.55;
+                        0.2 -> 1.0  [ Interp=Cubic; Arrive=0.6; Leave=1.4 ];
+                        1.0 -> 0.3  [ Interp=Linear ];
+                    },
+                    CurveIndex = Particles.NormalizedAge
+                )
+            );
+        }
+
+        SpriteRenderer Core
+        {
+            FacingMode = FaceCamera;
+            SortMode   = ViewDepth;
+
+            Bind Color          -> Particles.Color;
+            Bind SpriteSize     -> Particles.SpriteSize;
+            Bind SpriteRotation -> Particles.FX.Spin;
+        }
+    }
+}

@@ -70,8 +70,11 @@
 !/.mcp.json
 ue-mcp.local.yml
 
-# Dream Shader 文件
+# Dream Shader/FX 文件
 !/DShader/**/*.ds*
+!/DFX/**/*
+# 生成的模块索引（dfx.ps1 index 可随时重建）
+DFX/.dfx-index.json*
 
 # ===============================
 # 忽视：操作系统/平台生成的文件
