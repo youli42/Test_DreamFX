@@ -29,8 +29,9 @@ System(Name="Samples/Niagara/NS_MagicFountain")
     // 用户参数：Group("名") { ... } 作用域（与 DreamShader 的语法保持一致）——
     // 组内参数继承组名，并按声明顺序自动分配 SortPriority（步进 10，整块共享
     // 一个计数器；显式写的 [ SortPriority=.. ] 优先且不占自动槽位；嵌套组用
-    // "|" 组合成子分类）。元数据只保留在源码里（构建会提示 DFX5099，属预期）。
-    // 详情面板可调；蓝图运行时 UNiagaraComponent::SetVariableFloat 等覆盖。
+    // "|" 组合成子分类）。分组与排序会写进资产的参数层级树：Niagara 的
+    // Parameters 面板 / 详情面板按此分组排序展示。蓝图运行时
+    // UNiagaraComponent::SetVariableFloat 等覆盖。
     // ------------------------------------------------------------------
     Properties = {
         Group("发射") {

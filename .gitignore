@@ -75,6 +75,8 @@ ue-mcp.local.yml
 !/DFX/**/*
 # 生成的模块索引（dfx.ps1 index 可随时重建）
 DFX/.dfx-index.json*
+# 编辑器自动生成的 VSCode 工作区文件
+DFX/DreamFX.code-workspace
 
 # ===============================
 # 忽视：操作系统/平台生成的文件
