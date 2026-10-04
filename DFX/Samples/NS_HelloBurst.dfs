@@ -12,15 +12,12 @@ System(Name="Samples/Niagara/NS_HelloBurst")
                 LifeCycleMode    = Self,
                 LoopBehavior     = Infinite,   // 改成 Once 即一次性爆裂
                 InactiveResponse = Complete,
-                LoopDuration     = 0.5
+                LoopDuration     = 1.5
             );
             SpawnBurst_Instantaneous(SpawnCount = 32, SpawnTime = 0.0);
         }
 
         ParticleSpawn = {
-            // 部分路径锚定末尾用于消歧义；短名撞车被拒并列出候选（DFX3003）。
-            Spawn/Location/V2/SphereLocation(SphereRadius = 4.0);
-
             // 枚举解锁输入：Random 解锁 Min/Max；旧版同名模块已弃用（DFX6004）。
             Spawn/Initialization/V2/InitializeParticle(
                 LifetimeMode   = Random,
@@ -34,7 +31,20 @@ System(Name="Samples/Niagara/NS_HelloBurst")
                 UniformSpriteSizeMax = 5.0
             );
 
-            SystemLocation();
+            // 平面圆环出生：Ring 模式 + 大半径；AlignTorusWithAxis 解锁 TorusAxis（开关在前）。
+            Spawn/Location/TorusLocation(
+                TorusMode          = Ring,
+                LargeRadius        = 50.0,
+                AlignTorusWithAxis = true,
+                TorusAxis          = (0, 0, 1)
+            );
+
+            // SystemLocation();
+
+            // 径向扩散：速度 = 从所属组件位置指向粒子的单位向量 × 480（hlsl 单 rvalue）。
+            AddVelocity(
+                Velocity = hlsl { normalize(Particles.Position - Engine.Owner.Position) * 480.0 }
+            );
         }
 
         ParticleUpdate = {
