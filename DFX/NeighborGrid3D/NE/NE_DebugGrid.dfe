@@ -1,0 +1,66 @@
+// NE_DebugGrid — reusable debug-grid emitter, as DreamFXLang text (.dfe).
+// Transcribed from the flattened export of the systems that inherit it
+// (the exporter merges 'from' inheritance; see DFX8014 in the sibling .dfs files).
+// A .dfe generates nothing on its own (DFX5097): pull it into a system with
+//   Emitter DebugGrid from "../NE/NE_DebugGrid" { ... }
+// The host system must declare the User parameters this emitter reads (DFX3043):
+//   int CellsX, int CellsY, int CellsZ   (grid resolution)
+//
+// Reads User.CellsX/Y/Z to burst one particle per grid cell, then places each
+// particle on its cell via /Game/NeighborGrid3D/NM/NM_InitializeDebugCells and
+// renders the cell with a unit cube + text material.
+
+Emitter(Name="NeighborGrid3D/NE/NE_DebugGrid", Root="Game")
+{
+    Settings = {
+        SimTarget = GPU;
+        CalculateBoundsMode = Fixed;
+        QualityLevelMask = 31;
+    }
+
+    EmitterUpdate = {
+        EmitterState(
+            LifeCycleMode = Self,
+            InactiveResponse = Complete,
+            LoopBehavior = Once,
+            LoopDurationMode = Fixed,
+            ScalabilityMode = System,
+            LoopDuration = 1.0,
+            UseLoopDelay = false
+        );
+        SpawnBurst_Instantaneous(
+            SpawnCount = Multiply_Int(A = Multiply_Int(A = User.CellsX, B = User.CellsY), B = User.CellsZ),
+            UseSpawnProbability = false,
+            UseLoopCountLimit = false
+        );
+    }
+
+    ParticleSpawn = {
+        /Game/NeighborGrid3D/NM/NM_InitializeDebugCells(
+            NeighborGrid3D = System.MyNeighborGrid3D,
+            UnitToWorldMatrix = System.Grid3D_CreateUnitToWorldTransform.UnitToWorld,
+            CellMeshScaleOffset = -0.05,
+            CellSpriteScale = 0.5
+        );
+    }
+
+    ParticleUpdate = {
+        /Game/NeighborGrid3D/NM/NM_InitializeDebugCells(
+            NeighborGrid3D = System.MyNeighborGrid3D,
+            UnitToWorldMatrix = System.Grid3D_CreateUnitToWorldTransform.UnitToWorld,
+            CellMeshScaleOffset = -0.05,
+            CellSpriteScale = 0.5
+        ) as NM_InitializeDebugCells001;
+    }
+
+    MeshRenderer
+    {
+        bOverrideMaterials = true;
+        Meshes = "[{\"meshParameterBinding\":{\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}}},\"lODMode\":\"LODLevel\",\"lODLevelBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODBiasBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODLevel\":0,\"lODBias\":0,\"lODDistanceFactor\":1,\"bUseLODRange\":false,\"lODRange\":{\"x\":0,\"y\":8},\"mesh\":\"/Script/Engine.StaticMesh'/Engine/EngineMeshes/s_cube_1cm.s_cube_1cm'\",\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"rotation\":{\"pitch\":0,\"yaw\":0,\"roll\":0},\"pivotOffset\":{\"x\":0,\"y\":0,\"z\":0},\"pivotOffsetSpace\":\"Mesh\"}]";
+        OverrideMaterials = "[{\"explicitMat\":\"/Script/Engine.Material'/Game/NeighborGrid3D/Material/M_Debug_Cell.M_Debug_Cell'\",\"userParamBinding\":{\"parameter\":{\"varData\":[],\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":2}}}}]";
+    }
+    SpriteRenderer
+    {
+        Material = "/Script/Engine.Material'/Game/NeighborGrid3D/Material/M_Debug_CellText.M_Debug_CellText'";
+    }
+}

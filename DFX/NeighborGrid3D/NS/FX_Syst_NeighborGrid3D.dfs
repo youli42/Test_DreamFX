@@ -1,0 +1,203 @@
+// Decompiled from /Game/NeighborGrid3D/NS/FX_Syst_NeighborGrid3D.FX_Syst_NeighborGrid3D by DreamFX.
+// Inline arithmetic is not recovered: expressions come back as equivalent hlsl { } blocks.
+// This source builds the in-place asset /Game/NeighborGrid3D/NS/FX_Syst_NeighborGrid3D directly.
+//
+// NOT REPRESENTED IN THIS FILE -- 2 feature(s) of the asset that DreamFXLang cannot
+// express yet. The rebuilt mirror is an asset WITHOUT them:
+//   - emitter 'DebugGrid_0' inherits from '/Game/NeighborGrid3D/NE/NE_DebugGrid.NE_DebugGrid' (version 43251610-746F-1E93-96CB-2F9AD64867C9) -- the export carries the merged stack, but the rebuilt emitter is independent: future edits to that parent will not reach it
+//   - emitter 'Grid' inherits from '/Niagara/DefaultAssets/Templates/CascadeConversion/CompletelyEmpty.CompletelyEmpty' (version 43251610-746F-1E93-96CB-2F9AD64867C9) -- the export carries the merged stack, but the rebuilt emitter is independent: future edits to that parent will not reach it
+//
+System(Name="NeighborGrid3D/NS/FX_Syst_NeighborGrid3D", Root="Game")
+{
+    Settings = {
+        WarmupTime = 0;
+        FixedTickDelta = false;
+        FixedTickDeltaTime = 0.01667;
+    }
+
+    Properties = {
+        int CellsX = 20;
+        int CellsY = 20;
+        int CellsZ = 20;
+        Vector GridSize = (1000.0, 1000.0, 1000.0);
+        int MaxNeighbors = 15;
+    }
+
+    SystemSpawn = {
+        DI<NeighborGrid3D> System.MyNeighborGrid3D = "{\"MaxNeighborsPerCell\":24,\"ClearBeforeNonIterationStage\":true,\"NumCells\":{\"x\":3,\"y\":3,\"z\":3},\"CellSize\":1,\"NumCellsMaxAxis\":10,\"SetResolutionMethod\":\"CellSize\",\"WorldBBoxSize\":{\"x\":100,\"y\":100,\"z\":100}}";
+        /Game/NeighborGrid3D/NS/Scripts/FX_Syst_NeighborGrid3D_InitializeGrid(
+            MyNeighborGrid3DIn = System.MyNeighborGrid3D,
+            MaxNeighborsPerCell = User.MaxNeighbors,
+            NumCellsX = User.CellsX,
+            NumCellsY = User.CellsY,
+            NumCellsZ = User.CellsZ
+        );
+    }
+
+    SystemUpdate = {
+        SystemState(
+            InactiveResponse = Complete,
+            LoopBehavior = Infinite,
+            RecalculateDurationEachLoop = false,
+            UseLoopDelay = false
+        );
+        /Game/NeighborGrid3D/NM/Grid3D_CreateUnitToWorldTransform(
+            CameraFacing = false,
+            Offset = Engine.Owner.Position,
+            Rotation = Engine.Owner.Rotation,
+            WorldGridExtents = Multiply_Vector(A = Engine.Owner.Scale, B = User.GridSize)
+        );
+    }
+
+    Emitter Grid
+    {
+        Settings = {
+            SimTarget = GPU;
+            CalculateBoundsMode = Fixed;
+            QualityLevelMask = 31;
+        }
+
+        EmitterSpawn = {
+            DI<ParticleRead> Emitter.MyAttributeReader = "{\"EmitterBinding\":{\"bindingMode\":\"Self\",\"emitterName\":\"None\"}}";
+        }
+
+        EmitterUpdate = {
+            EmitterState(
+                LifeCycleMode = Self,
+                InactiveResponse = Complete,
+                LoopBehavior = Once,
+                LoopDurationMode = Fixed,
+                ScalabilityMode = System,
+                UseLoopDelay = false
+            );
+            SpawnBurst_Instantaneous(SpawnCount = 150, UseSpawnProbability = false, UseLoopCountLimit = false);
+        }
+
+        ParticleSpawn = {
+            V2/InitializeParticle(
+                LifetimeMode = DirectSet,
+                ColorMode = DirectSet,
+                PositionMode = SimulationPosition,
+                MassMode = NewEnumerator0,
+                SpriteSizeMode = Uniform,
+                SpriteRotationMode = Unset,
+                SpriteUVMode = Unset,
+                MeshScaleMode = Uniform,
+                MeshRendererArrayVisibilityMode = Unset,
+                RibbonWidthMode = Unset,
+                RibbonFacingMode = Unset,
+                RibbonTwistMode = Unset,
+                UsePositionOffset = false,
+                WriteMaterialRandom = true,
+                UniformSpriteSize = 5.0,
+                MeshUniformScale = 0.5
+            );
+            ShapeLocation(
+                ShapePrimitive = Box/Plane,
+                `Box/PlaneMode` = Box,
+                ApplyToParticlePosition = Apply,
+                RandomnessMode = SimulationDefaults,
+                TransformOrder = Scale/Rotate/Offset,
+                ScaleMode = Default,
+                RotationMode = Default,
+                OffsetMode = None,
+                TransformMethod = Default,
+                BoxSize = (300.0, 300.0, 300.0),
+                SurfaceOnly = false,
+                MaskSpawnGroup = false,
+                OverrideSeed = false,
+                UseOwnerScale = true
+            );
+        }
+
+        ParticleUpdate = {
+            ParticleState@1.1(
+                KillParticlesWhenLifetimeHasElapsed = false,
+                LoopParticlesLifetime = false,
+                LetInfinitelyLivedParticlesDieWhenEmitterDeactivates = false
+            );
+        }
+
+        SpriteRenderer
+        {
+            Material = "/Script/Engine.Material'/Niagara/DefaultAssets/DefaultSpriteMaterial.DefaultSpriteMaterial'";
+        }
+        MeshRenderer
+        {
+            bIsEnabled = false;
+            Meshes = "[{\"meshParameterBinding\":{\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}}},\"lODMode\":\"LODLevel\",\"lODLevelBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODBiasBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODLevel\":0,\"lODBias\":0,\"lODDistanceFactor\":1,\"bUseLODRange\":false,\"lODRange\":{\"x\":0,\"y\":8},\"mesh\":\"/Script/Engine.StaticMesh'/Engine/VREditor/BasicMeshes/SM_Ball_01.SM_Ball_01'\",\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"rotation\":{\"pitch\":0,\"yaw\":0,\"roll\":0},\"pivotOffset\":{\"x\":0,\"y\":0,\"z\":0},\"pivotOffsetSpace\":\"Mesh\"}]";
+        }
+        Stage FillGrid = {
+            /Game/NeighborGrid3D/NS/Scripts/FX_Syst_NeighborGrid3D_FillGridModule(
+                NeighborGrid3DBase = System.MyNeighborGrid3D,
+                WorldToUnitMatrix = System.Grid3D_CreateUnitToWorldTransform.WorldToUnit
+            );
+        }
+
+        Stage QueryGrid = {
+            /Game/NeighborGrid3D/NS/Scripts/FX_Syst_NeighborGrid3D_QueryGrid(
+                NeighborGrid3D = System.MyNeighborGrid3D,
+                AttributeReader = Emitter.MyAttributeReader,
+                WorldToUnitMatrix = System.Grid3D_CreateUnitToWorldTransform.WorldToUnit,
+                In_ParticleCollisionRadius = 36.0
+            );
+        }
+
+    }
+
+    Emitter DebugGrid_0
+    {
+        Settings = {
+            SimTarget = GPU;
+            CalculateBoundsMode = Fixed;
+            QualityLevelMask = 31;
+        }
+
+        EmitterUpdate = {
+            EmitterState(
+                LifeCycleMode = Self,
+                InactiveResponse = Complete,
+                LoopBehavior = Once,
+                LoopDurationMode = Fixed,
+                ScalabilityMode = System,
+                LoopDuration = 1.0,
+                UseLoopDelay = false
+            );
+            SpawnBurst_Instantaneous(
+                SpawnCount = Multiply_Int(A = Multiply_Int(A = User.CellsX, B = User.CellsY), B = User.CellsZ),
+                UseSpawnProbability = false,
+                UseLoopCountLimit = false
+            );
+        }
+
+        ParticleSpawn = {
+            /Game/NeighborGrid3D/NM/NM_InitializeDebugCells(
+                NeighborGrid3D = System.MyNeighborGrid3D,
+                UnitToWorldMatrix = System.Grid3D_CreateUnitToWorldTransform.UnitToWorld,
+                CellMeshScaleOffset = -0.05,
+                CellSpriteScale = 0.5
+            );
+        }
+
+        ParticleUpdate = {
+            /Game/NeighborGrid3D/NM/NM_InitializeDebugCells(
+                NeighborGrid3D = System.MyNeighborGrid3D,
+                UnitToWorldMatrix = System.Grid3D_CreateUnitToWorldTransform.UnitToWorld,
+                CellMeshScaleOffset = -0.05,
+                CellSpriteScale = 0.5
+            ) as NM_InitializeDebugCells001;
+        }
+
+        MeshRenderer
+        {
+            bOverrideMaterials = true;
+            Meshes = "[{\"meshParameterBinding\":{\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}}},\"lODMode\":\"LODLevel\",\"lODLevelBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODBiasBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODLevel\":0,\"lODBias\":0,\"lODDistanceFactor\":1,\"bUseLODRange\":false,\"lODRange\":{\"x\":0,\"y\":8},\"mesh\":\"/Script/Engine.StaticMesh'/Engine/EngineMeshes/s_cube_1cm.s_cube_1cm'\",\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"rotation\":{\"pitch\":0,\"yaw\":0,\"roll\":0},\"pivotOffset\":{\"x\":0,\"y\":0,\"z\":0},\"pivotOffsetSpace\":\"Mesh\"}]";
+            OverrideMaterials = "[{\"explicitMat\":\"/Script/Engine.Material'/Game/NeighborGrid3D/Material/M_Debug_Cell.M_Debug_Cell'\",\"userParamBinding\":{\"parameter\":{\"varData\":[],\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":2}}}}]";
+        }
+        SpriteRenderer
+        {
+            Material = "/Script/Engine.Material'/Game/NeighborGrid3D/Material/M_Debug_CellText.M_Debug_CellText'";
+        }
+    }
+
+}

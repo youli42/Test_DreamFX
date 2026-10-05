@@ -78,6 +78,12 @@ DFX/.dfx-index.json*
 # 编辑器自动生成的 VSCode 工作区文件
 DFX/DreamFX.code-workspace
 
+# 文本生成的 Niagara 构建产物（dfx.ps1 build 由 DFX/**.dfs 生成，可随时重建，不入库）
+/Content/NeighborGrid3D/NS/*.uasset
+/Content/NeighborGrid3D/NS/Scripts/
+# 旧的反编译镜像构建位置（已被原位构建取代，残留不入库）
+/Content/Decompiled/
+
 # ===============================
 # 忽视：操作系统/平台生成的文件
 # ===============================

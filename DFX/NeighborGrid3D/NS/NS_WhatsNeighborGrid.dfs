@@ -1,0 +1,388 @@
+// Decompiled from /Game/NeighborGrid3D/NS/NS_WhatsNeighborGrid.NS_WhatsNeighborGrid by DreamFX.
+// Inline arithmetic is not recovered: expressions come back as equivalent hlsl { } blocks.
+// This source builds the in-place asset /Game/NeighborGrid3D/NS/NS_WhatsNeighborGrid directly.
+System(Name="NeighborGrid3D/NS/NS_WhatsNeighborGrid", Root="Game")
+{
+    Settings = {
+        WarmupTime = 0;
+        FixedTickDelta = false;
+        FixedTickDeltaTime = 0.01667;
+    }
+
+    Properties = {
+        int ParticleCount = 64;
+    }
+
+    SystemUpdate = {
+        InitializeNeighborGrid@1.0(
+            DefineNeighborGrid = true,
+            GridExtents = (242.888184, 256.647339, 276.830505),
+            CoordinateSpaceForRotationandOffset = World,
+            Offset = Engine.Owner.Position,
+            NewNeighborGrid3D = "{\"MaxNeighborsPerCell\":6,\"ClearBeforeNonIterationStage\":true,\"NumCells\":{\"x\":4,\"y\":4,\"z\":4},\"CellSize\":100,\"NumCellsMaxAxis\":10,\"SetResolutionMethod\":\"Independent\",\"WorldBBoxSize\":{\"x\":1,\"y\":1,\"z\":1}}"
+        );
+        SystemState(
+            InactiveResponse = Complete,
+            LoopBehavior = Infinite,
+            LoopDuration = 10.0,
+            RecalculateDurationEachLoop = false,
+            UseLoopDelay = false
+        );
+    }
+
+    Emitter PBD
+    {
+        Settings = {
+            SimTarget = GPU;
+            LocalSpace = true;
+            CalculateBoundsMode = Fixed;
+            FixedBounds = box(-500.0, -500.0, -500.0, 500.0, 500.0, 500.0);
+            RequiresPersistentIDs = true;
+            QualityLevelMask = 31;
+        }
+
+        EmitterSpawn = {
+            // Exporter gap (not parseable DreamFXLang): the emitter static switch
+            // `Emitter.Use Persistent ID-Based Neighbor Grid` = true.
+            // Omitted on purpose: the backing NiagaraDataInterfaceNeighborQuery.bUsePersistentIDs
+            // defaults to true, matching the exported value. If a rebuild ever changes PBD
+            // neighbour behaviour, re-check this toggle on the emitter in the editor.
+        }
+
+        EmitterUpdate = {
+            EmitterState(
+                LifeCycleMode = Self,
+                InactiveResponse = Complete,
+                LoopBehavior = Once,
+                LoopDurationMode = Infinite,
+                ScalabilityMode = System,
+                UseLoopDelay = false
+            );
+            SpawnBurst_Instantaneous(
+                SpawnCount = User.ParticleCount,
+                UseSpawnProbability = false,
+                UseLoopCountLimit = false
+            );
+            DI<ParticleRead> Emitter.ParticleReader = "{\"EmitterBinding\":{\"bindingMode\":\"Other\",\"emitterName\":\"PBD\"}}";
+        }
+
+        ParticleSpawn = {
+            V2/InitializeParticle(
+                LifetimeMode = DirectSet,
+                ColorMode = Unset,
+                PositionMode = SimulationPosition,
+                MassMode = Random,
+                MassRandomnessMode = SimulationDefaults,
+                SpriteSizeMode = Uniform,
+                SpriteRotationMode = Unset,
+                SpriteUVMode = Unset,
+                MeshScaleMode = Uniform,
+                MeshRendererArrayVisibilityMode = Unset,
+                RibbonWidthMode = DirectSet,
+                RibbonFacingMode = Unset,
+                RibbonTwistMode = Unset,
+                Lifetime = Emitter.CurrentLoopDuration,
+                UsePositionOffset = false,
+                MassMin = 15.0,
+                MassMax = 28.0,
+                WriteMaterialRandom = true
+            );
+            CalculateSizeAndRotationalInertiaByMass(
+                CalculateMeshScale = true,
+                InitialModelDimensions = (2.0, 2.0, 2.0),
+                ManuallyEnterDensity = false,
+                DensitybyMaterialType = Styrofoam
+            );
+            ShapeLocation(
+                ShapePrimitive = Sphere,
+                ApplyToParticlePosition = Apply,
+                SphereDistribution = Random,
+                HemisphereAngleType = NormalizedAngle,
+                RandomnessMode = SimulationDefaults,
+                TransformOrder = Scale/Rotate/Offset,
+                ScaleMode = Default,
+                RotationMode = Default,
+                OffsetMode = None,
+                TransformMethod = Default,
+                SphereRadius = 125.0,
+                MaskSpawnGroup = false,
+                OverrideSeed = false,
+                UseOwnerScale = true
+            );
+        }
+
+        ParticleUpdate = {
+            ParticleState@1.1(
+                KillParticlesWhenLifetimeHasElapsed = false,
+                LoopParticlesLifetime = false,
+                LetInfinitelyLivedParticlesDieWhenEmitterDeactivates = false
+            );
+            float Particles.CollisionRadius = CalculateParticleRadius(
+    MethodforCalculatingParticleRadius = MinimumAxis,
+    RadiusCalculationType = Mesh,
+    MeshDimensions = (2.0, 2.0, 2.0)
+);
+            Vector Particles.PreviousPosition = Particles.Previous.Position;
+            bool Particles.Unyielding = false;
+            disabled Drag@1.0(UseLinearDrag = true, Drag = 0.19954553, UseRotationalDrag = false);
+            disabled V2/PointAttractionForce(
+                AttractionStrength = 175.0,
+                AttractionRadius = 9999999.0,
+                UseFalloff = false,
+                UseAttractorOffset = false,
+                KillWithinRadius = false
+            );
+            disabled Collision@1.0(
+                GPUCollisionType = GPUDistanceFields,
+                RadiusCalculationType = Custom,
+                ControlRollOnCollision = false,
+                SimpleFriction = true,
+                CollisionEnabled = true,
+                ParticleRadius = Particles.CollisionRadius,
+                RandomizeCollisionNormalVector = false,
+                AgeCollidingParticles = false,
+                EnableRestState = false,
+                ManuallyEnterRest = false,
+                EnableMaxCollisionCount = false
+            );
+            Vector4 Particles.DynamicMaterialParameter = MakeFloat4FromVectorAndFloat(
+    `Vector(RGB)` = TransformPositionByMatrix(
+        Position = Particles.Position,
+        TransformationMatrix = System.WorldToGridUnit
+    ),
+    `Float(Alpha)` = 1.0
+);
+            disabled SolveForcesAndVelocity(
+                WritetoPresolveProperties = true,
+                ClampVelocity = true,
+                SpeedLimit = 185.0,
+                LimitAcceleration = false,
+                WritetoIntrinsicProperties = true
+            );
+            V3/UpdateMeshOrientation(
+                OrientationMethod = RollingOrientation,
+                WritetoOrientation = Apply,
+                AutomaticallyCalculateParticleRadius = true,
+                MeshRadiusCalculationMethod = MaximumAxis,
+                Enabled = true,
+                UpdateRotationRate = true,
+                MeshRenderer = "{\"MeshRenderer\":\"/Script/Niagara.NiagaraMeshRendererProperties'dfxself://renderer/PBD/0'\"}"
+            );
+        }
+
+        MeshRenderer
+        {
+            bIsEnabled = false;
+            bOverrideMaterials = true;
+            bSubImageBlend = false;
+            Meshes = "[{\"meshParameterBinding\":{\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}}},\"lODMode\":\"LODLevel\",\"lODLevelBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODBiasBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODLevel\":0,\"lODBias\":0,\"lODDistanceFactor\":1,\"bUseLODRange\":false,\"lODRange\":{\"x\":0,\"y\":8},\"mesh\":\"/Script/Engine.StaticMesh'/Engine/ArtTools/RenderToTexture/Meshes/S_1_Unit_Sphere_HI.S_1_Unit_Sphere_HI'\",\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"rotation\":{\"pitch\":0,\"yaw\":0,\"roll\":0},\"pivotOffset\":{\"x\":0,\"y\":0,\"z\":0},\"pivotOffsetSpace\":\"Mesh\"}]";
+            OverrideMaterials = "[{\"explicitMat\":\"None\",\"userParamBinding\":{\"parameter\":{\"varData\":[],\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":2}}}}]";
+
+            Bind CustomSorting -> Particles.NormalizedAge;
+        }
+        Stage PopulateGrid = {
+            PopulateNeighborGrid(
+                NeighborGrid = System.InitializeNeighborGrid.NeighborGrid3D,
+                SimulationToGridUnitTransform = System.InitializeNeighborGrid.WorldToGridUnit
+            );
+        }
+
+        Stage `Particle Collisions`(NumIterations = 4) = {
+            PBD_IntraParticleCollision(
+                IgnoreParticleVelocityonFirstFrame = false,
+                NeighborGrid = System.InitializeNeighborGrid.NeighborGrid3D,
+                ParticleAttributeReader = Emitter.ParticleReader,
+                Simulate = true,
+                SimulationToUnit = System.InitializeNeighborGrid.WorldToGridUnit,
+                Reduceunyeildingparticlevelocities = true
+            ) as PBD_ParticleCollision;
+        }
+
+    }
+
+    Emitter Visualize_Grid_Cells_Via_UnitToWorldTransforms
+    {
+        Settings = {
+            SimTarget = GPU;
+            CalculateBoundsMode = Fixed;
+            FixedBounds = box(-500.0, -500.0, -500.0, 500.0, 500.0, 500.0);
+            Enabled = false;
+            QualityLevelMask = 31;
+        }
+
+        EmitterUpdate = {
+            EmitterState(
+                LifeCycleMode = Self,
+                InactiveResponse = Complete,
+                LoopBehavior = Infinite,
+                ScalabilityMode = System,
+                LoopDuration = 0.05,
+                RecalculateDurationEachLoop = false,
+                UseLoopDelay = false
+            );
+            SpawnParticlesInGrid(
+                XCount = System.NeighborGridCellCountX,
+                YCount = System.NeighborGridCellCountY,
+                ZCount = System.NeighborGridCellCountZ
+            );
+        }
+
+        ParticleSpawn = {
+            V2/GridLocation(
+                AlignToGridCell = true,
+                DimensionsDefinition = BoundingBoxSize,
+                NormalizeOffsets = true,
+                UseACustomTransformationMatrix = true,
+                XYZDimensions = (1.0, 1.0, 1.0),
+                JitterInsideGridCells = false,
+                Offset = Add_Vector(
+        A = Multiply_VectorByFloat(
+            Vector = `Emitter.SpawnParticlesInGrid.Grid Location XYZ Count `,
+            Float = 0.5
+        ),
+        B = (0.5, 0.5, 0.5)
+    ),
+                PlacementRandomnessMode = Determinisitic,
+                OverrideRandomSeed = false,
+                CustomTransformationMatrix = System.GridUnitToWorld,
+                GridXCount = System.NeighborGridCellCountX,
+                GridYCount = System.NeighborGridCellCountY,
+                GridZCount = System.NeighborGridCellCountZ
+            );
+            Initialization/InitializeParticle(
+                WriteLifetime = true,
+                Lifetime = Emitter.CurrentLoopDuration,
+                WritePosition = false,
+                WriteMass = false,
+                WriteColor = true,
+                Color = (0.32000002, 0.93, 0.08000003, 1.0),
+                WriteMaterialRandom = false,
+                WriteSpriteSize = true,
+                SpriteSize = (80.0, 80.0),
+                WriteSpriteRotation = false,
+                WriteScale = true,
+                MeshScale = Multiply_VectorByFloat(Vector = `Output.GridLocation.XYZ Spacing`, Float = 1.0)
+            );
+            Quat Particles.MeshOrientation = System.InitializeNeighborGrid.UnitToWorldRotationAsQuat;
+        }
+
+        ParticleUpdate = {
+            ParticleState@1.0(KillParticlesWhenLifetimeHasElapsed = true);
+        }
+
+        MeshRenderer
+        {
+            bCastShadows = false;
+            bSubImageBlend = false;
+
+            Bind CustomSorting -> Particles.NormalizedAge;
+        }
+    }
+
+    Emitter Minimal
+    {
+        Settings = {
+            SimTarget = GPU;
+            LocalSpace = true;
+            CalculateBoundsMode = Fixed;
+            RequiresPersistentIDs = true;
+            QualityLevelMask = 31;
+        }
+
+        EmitterUpdate = {
+            EmitterState(
+                LifeCycleMode = Self,
+                InactiveResponse = Complete,
+                LoopBehavior = Once,
+                LoopDurationMode = Infinite,
+                ScalabilityMode = System,
+                UseLoopDelay = false
+            );
+            SpawnBurst_Instantaneous(
+                SpawnCount = User.ParticleCount,
+                UseSpawnProbability = false,
+                UseLoopCountLimit = false
+            );
+            DI<ParticleRead> Emitter.ParticleReader = "{\"EmitterBinding\":{\"bindingMode\":\"Other\",\"emitterName\":\"PBD\"}}";
+        }
+
+        ParticleSpawn = {
+            V2/InitializeParticle(
+                LifetimeMode = DirectSet,
+                ColorMode = Unset,
+                PositionMode = SimulationPosition,
+                MassMode = NewEnumerator0,
+                SpriteSizeMode = Uniform,
+                SpriteRotationMode = Unset,
+                SpriteUVMode = Unset,
+                MeshScaleMode = Unset,
+                MeshRendererArrayVisibilityMode = Unset,
+                RibbonWidthMode = Unset,
+                RibbonFacingMode = Unset,
+                RibbonTwistMode = Unset,
+                Lifetime = 60.0,
+                UsePositionOffset = false,
+                WriteMaterialRandom = true
+            );
+        }
+
+        ParticleUpdate = {
+            ParticleState@1.1(
+                KillParticlesWhenLifetimeHasElapsed = false,
+                LoopParticlesLifetime = false,
+                LetInfinitelyLivedParticlesDieWhenEmitterDeactivates = false
+            );
+            /Game/NeighborGrid3D/NS/Scripts/NS_WhatsNeighborGrid_UpdatePosition(
+                AttributeReader = Emitter.ParticleReader
+            );
+            /Game/NeighborGrid3D/NS/Scripts/NS_WhatsNeighborGrid_SetLeaderParticle(
+                LeaderIndex = /Game/NeighborGrid3D/NS/Scripts/NS_WhatsNeighborGrid_IntByTIme(
+        Speed = 8.0,
+        MaxNum = User.ParticleCount
+    ),
+                OtherSize = Particles.Initial.SpriteSize,
+                PartileReader = Emitter.ParticleReader,
+                NiagaraID = MakeNiagaraIDFromInt(Index = 1, AcquireTag = 0)
+            );
+            SpriteBasedLine(
+                Color = (0.0, 0.1733315, 1.0, 1.0),
+                PointA = /Game/NeighborGrid3D/NS/Scripts/NS_WhatsNeighborGrid_GetLeaderPositionByIndex(
+        ParticleReader = Emitter.ParticleReader,
+        LeaderIndex = Output.SetLeaderParticle.MyLeaderIndex
+    ),
+                PointB = Particles.Position,
+                SpriteWidth = Floor_Float(Float = 3.0)
+            );
+            disabled SpriteBasedLine(
+                Color = (0.0, 0.1733315, 1.0, 1.0),
+                PointA = /Game/NeighborGrid3D/NS/Scripts/NS_WhatsNeighborGrid_GetLeaderPositionByID(
+        ParticleReader = Emitter.ParticleReader,
+        NiagaraID = Output.SetLeaderParticle.MyNiagaraID
+    ),
+                PointB = Particles.Position,
+                SpriteWidth = Floor_Float(Float = 3.0)
+            ) as SpriteBasedLine001;
+        }
+
+        SpriteRenderer
+        {
+            bSubImageBlend = false;
+            Material = "/Script/Engine.Material'/Niagara/DefaultAssets/DefaultSpriteMaterial.DefaultSpriteMaterial'";
+
+            Bind CustomSorting -> Particles.NormalizedAge;
+        }
+        SpriteRenderer
+        {
+            SortOrderHint = -1;
+
+            Bind Position -> Particles.SpriteBasedLine.Position;
+            Bind Color -> Particles.SpriteBasedLine.Color;
+            Bind SpriteSize -> Particles.SpriteBasedLine.SpriteSize;
+            Bind SpriteAlignment -> Particles.SpriteBasedLine.SpriteAlignment;
+            Bind PrevPosition -> Particles.SpriteBasedLine.Previous.Position;
+            Bind PrevSpriteSize -> Particles.SpriteBasedLine.Previous.SpriteSize;
+            Bind PrevSpriteAlignment -> Particles.SpriteBasedLine.Previous.SpriteAlignment;
+        }
+    }
+
+}
