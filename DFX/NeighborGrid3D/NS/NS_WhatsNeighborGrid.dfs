@@ -1,6 +1,7 @@
-// Decompiled from /Game/NeighborGrid3D/NS/NS_WhatsNeighborGrid.NS_WhatsNeighborGrid by DreamFX.
-// Inline arithmetic is not recovered: expressions come back as equivalent hlsl { } blocks.
-// This source builds the in-place asset /Game/NeighborGrid3D/NS/NS_WhatsNeighborGrid directly.
+// 由 DreamFX 从 /Game/NeighborGrid3D/NS/NS_WhatsNeighborGrid.NS_WhatsNeighborGrid 反编译导出。
+// 用途: 概念演示版 —— 讲解 NeighborGrid 工作原理（Leader 跟随）。
+// 内联算术未被还原：表达式以等价的 hlsl { } 块形式导出。
+// 本源文件直接原位构建资产 /Game/NeighborGrid3D/NS/NS_WhatsNeighborGrid。
 System(Name="NeighborGrid3D/NS/NS_WhatsNeighborGrid", Root="Game")
 {
     Settings = {
@@ -10,7 +11,7 @@ System(Name="NeighborGrid3D/NS/NS_WhatsNeighborGrid", Root="Game")
     }
 
     Properties = {
-        int ParticleCount = 64;
+        int ParticleCount = 64 [ Description="演示粒子总数；PBD 与 Minimal 的生成数量，也是 Leader 索引上限" ];
     }
 
     SystemUpdate = {
@@ -42,11 +43,11 @@ System(Name="NeighborGrid3D/NS/NS_WhatsNeighborGrid", Root="Game")
         }
 
         EmitterSpawn = {
-            // Exporter gap (not parseable DreamFXLang): the emitter static switch
-            // `Emitter.Use Persistent ID-Based Neighbor Grid` = true.
-            // Omitted on purpose: the backing NiagaraDataInterfaceNeighborQuery.bUsePersistentIDs
-            // defaults to true, matching the exported value. If a rebuild ever changes PBD
-            // neighbour behaviour, re-check this toggle on the emitter in the editor.
+            // 导出器缺口（DreamFXLang 无法解析）：发射器静态开关
+            // `Emitter.Use Persistent ID-Based Neighbor Grid` = true。
+            // 有意省略：底层的 NiagaraDataInterfaceNeighborQuery.bUsePersistentIDs
+            // 默认就是 true，与导出值一致。若日后重建后 PBD 的
+            // 邻居行为有变化，请在编辑器中复查发射器上的该开关。
         }
 
         EmitterUpdate = {

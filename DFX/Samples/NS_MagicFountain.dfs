@@ -10,15 +10,16 @@ System(Name="Samples/Niagara/NS_MagicFountain")
 
     // Group("名") { ... } 作用域：组内参数继承组名、自动按序分配 SortPriority；
     // 分组写进资产参数树，详情面板按此展示；蓝图运行时可覆盖。
+    // 命名约定：参数名保持英文（稳定键，蓝图按名引用，改名即断引用）；中文说明走 Description 悬停。
     Properties = {
         Group("发射") {
-            float SpawnPerSecond = 140.0;
-            float LaunchSpeed    = 480.0;
+            float SpawnPerSecond = 140.0 [ Description="每秒发射的水滴数量" ];
+            float LaunchSpeed    = 480.0 [ Description="喷口初速（cm/s）；实际值在其 75%~100% 间随机" ];
         }
         Group("外观") {
-            float DropSize  = 4.5;
-            Color WaterTint = (0.35, 0.68, 1.00, 1.0);
-            Color FoamTint  = (0.85, 0.95, 1.00, 1.0);
+            float DropSize  = 4.5                     [ Description="水滴基准尺寸（cm）；实际在 60%~100% 间随机" ];
+            Color WaterTint = (0.35, 0.68, 1.00, 1.0) [ Description="颜色随机范围下限（深蓝）" ];
+            Color FoamTint  = (0.85, 0.95, 1.00, 1.0) [ Description="颜色随机范围上限（近白泡沫色）" ];
         }
         Group("物理") {
             float PullStrength = 700.0

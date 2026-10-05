@@ -1,11 +1,12 @@
-// Decompiled from /Game/NeighborGrid3D/NS/NS_NeighborGrid3D.NS_NeighborGrid3D by DreamFX.
-// Inline arithmetic is not recovered: expressions come back as equivalent hlsl { } blocks.
-// This source builds the in-place asset /Game/NeighborGrid3D/NS/NS_NeighborGrid3D directly.
+// 由 DreamFX 从 /Game/NeighborGrid3D/NS/NS_NeighborGrid3D.NS_NeighborGrid3D 反编译导出。
+// 用途: 基础版 —— NeighborGrid3D 邻域网格基础实现（Cells 40^3，GridSize 4000^3，MaxNeighbors 20）。
+// 内联算术未被还原：表达式以等价的 hlsl { } 块形式导出。
+// 本源文件直接原位构建资产 /Game/NeighborGrid3D/NS/NS_NeighborGrid3D。
 //
-// NOT REPRESENTED IN THIS FILE -- 2 feature(s) of the asset that DreamFXLang cannot
-// express yet. The rebuilt mirror is an asset WITHOUT them:
-//   - emitter 'DebugGrid_0' inherits from '/Game/NeighborGrid3D/NE/NE_DebugGrid.NE_DebugGrid' (version 43251610-746F-1E93-96CB-2F9AD64867C9) -- the export carries the merged stack, but the rebuilt emitter is independent: future edits to that parent will not reach it
-//   - emitter 'Grid' inherits from '/Niagara/DefaultAssets/Templates/CascadeConversion/CompletelyEmpty.CompletelyEmpty' (version 43251610-746F-1E93-96CB-2F9AD64867C9) -- the export carries the merged stack, but the rebuilt emitter is independent: future edits to that parent will not reach it
+// 本文件未承载 —— 原资产有 2 个 DreamFXLang 尚无法表达的特性，
+// 重建出的镜像资产将缺失它们：
+//   - 发射器 'DebugGrid_0' 继承自 '/Game/NeighborGrid3D/NE/NE_DebugGrid.NE_DebugGrid'（版本 43251610-746F-1E93-96CB-2F9AD64867C9）—— 导出已带入合并后的堆栈，但重建出的发射器是独立副本：日后对父级的修改不会传导到它
+//   - 发射器 'Grid' 继承自 '/Niagara/DefaultAssets/Templates/CascadeConversion/CompletelyEmpty.CompletelyEmpty'（版本 43251610-746F-1E93-96CB-2F9AD64867C9）—— 导出已带入合并后的堆栈，但重建出的发射器是独立副本：日后对父级的修改不会传导到它
 //
 System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D", Root="Game")
 {
@@ -16,11 +17,11 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D", Root="Game")
     }
 
     Properties = {
-        int CellsX = 40;
-        int CellsY = 40;
-        int CellsZ = 40;
-        Vector GridSize = (4000.0, 4000.0, 4000.0);
-        int MaxNeighbors = 20;
+        int CellsX = 40 [ Description="网格 X 轴单元数；调试格生成总数 = CellsX*CellsY*CellsZ" ];
+        int CellsY = 40 [ Description="网格 Y 轴单元数" ];
+        int CellsZ = 40 [ Description="网格 Z 轴单元数" ];
+        Vector GridSize = (4000.0, 4000.0, 4000.0) [ Description="网格世界尺寸（cm）；乘 Owner.Scale 后作为 WorldGridExtents，决定单元实际大小" ];
+        int MaxNeighbors = 20 [ Description="每单元最多记录的邻居数（MaxNeighborsPerCell）" ];
     }
 
     SystemSpawn = {

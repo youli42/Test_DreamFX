@@ -1,14 +1,14 @@
-// NE_DebugGrid — reusable debug-grid emitter, as DreamFXLang text (.dfe).
-// Transcribed from the flattened export of the systems that inherit it
-// (the exporter merges 'from' inheritance; see DFX8014 in the sibling .dfs files).
-// A .dfe generates nothing on its own (DFX5097): pull it into a system with
+// NE_DebugGrid —— 可复用的调试网格发射器（DreamFXLang 文本 .dfe）。
+// 由继承它的各系统的展平导出转写而来
+// （导出器会合并 'from' 继承；参见同级 .dfs 文件中的 DFX8014 说明）。
+// .dfe 自身不生成任何资产（DFX5097）：用如下语句拉入系统——
 //   Emitter DebugGrid from "../NE/NE_DebugGrid" { ... }
-// The host system must declare the User parameters this emitter reads (DFX3043):
-//   int CellsX, int CellsY, int CellsZ   (grid resolution)
+// 宿主系统必须声明本发射器要读取的 User 参数（DFX3043）：
+//   int CellsX、int CellsY、int CellsZ   （网格分辨率）
 //
-// Reads User.CellsX/Y/Z to burst one particle per grid cell, then places each
-// particle on its cell via /Game/NeighborGrid3D/NM/NM_InitializeDebugCells and
-// renders the cell with a unit cube + text material.
+// 读取 User.CellsX/Y/Z，每个网格格爆发生成一个粒子，再经
+// /Game/NeighborGrid3D/NM/NM_InitializeDebugCells 把粒子摆到所在格，
+// 用单位立方体 + 文字材质渲染每个格子。
 
 Emitter(Name="NeighborGrid3D/NE/NE_DebugGrid", Root="Game")
 {
