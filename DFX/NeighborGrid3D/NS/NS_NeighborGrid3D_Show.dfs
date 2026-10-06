@@ -127,6 +127,8 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Show", Root="Game")
                 MaskSpawnGroup = false,
                 UseOwnerScale = true
             );
+            float Particles.Hit = 0.0;
+            Vector Particles.MyPrevPos = (0.0, 0.0, 0.0);
         }
 
         ParticleUpdate = {
@@ -223,7 +225,10 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Show", Root="Game")
         Stage FillGrid = {
             /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Show_FillGridModule(
                 NeighborGrid3DBase = System.MyNeighborGrid3D,
-                WorldToUnitMatrix = System.Grid3D_CreateUnitToWorldTransform.WorldToUnit
+                W2URow0 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[0] },
+                W2URow1 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[1] },
+                W2URow2 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[2] },
+                W2URow3 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[3] }
             );
         }
 
@@ -231,8 +236,14 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Show", Root="Game")
             /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Show_QueryGrid(
                 NeighborGrid3D = System.MyNeighborGrid3D,
                 AttributeReader = Emitter.MyAttributeReader,
-                WorldToUnitMatrix = System.Grid3D_CreateUnitToWorldTransform.WorldToUnit,
-                In_ParticleCollisionRadius = Particles.Radius
+                W2URow0 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[0] },
+                W2URow1 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[1] },
+                W2URow2 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[2] },
+                W2URow3 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[3] },
+                In_ParticleCollisionRadius = Particles.Radius,
+                In_Hit = Particles.Hit,
+                In_PreviousPosition = Particles.MyPrevPos,
+                In_Age = Particles.Age
             );
         }
 

@@ -102,12 +102,12 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
                 ColorMaximum = (0.0, 0.0042738914, 1.0, 1.0),
                 UsePositionOffset = false,
                 Mass = Multiply_Float(
-        A = Multiply_Float(
-            A = Multiply_Float(A = Divide_Float(A = 4.0, B = 3.0), B = 3.141593),
-            B = Power(a = Particles.Radius, b = 3.0)
-        ),
-        B = 0.00008
-    ),
+                    A = Multiply_Float(
+                        A = Multiply_Float(A = Divide_Float(A = 4.0, B = 3.0), B = 3.141593),
+                        B = Power(a = Particles.Radius, b = 3.0)
+                    ),
+                    B = 0.00008
+                ),
                 WriteMaterialRandom = true,
                 UniformSpriteSize = 20.0,
                 MeshUniformScale = Particles.Radius
@@ -128,6 +128,8 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
                 OverrideSeed = false,
                 UseOwnerScale = true
             );
+            float Particles.Hit = 0.0;
+            Vector Particles.MyPrevPos = (0.0, 0.0, 0.0);
         }
 
         ParticleUpdate = {
@@ -216,6 +218,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
         }
         MeshRenderer
         {
+            bIsEnabled = true;
             bOverrideMaterials = true;
             Meshes = "[{\"meshParameterBinding\":{\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":105}}},\"lODMode\":\"LODLevel\",\"lODLevelBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODBiasBinding\":{\"defaultValue\":[0,0,0,0],\"resolvedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}},\"aliasedParameter\":{\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":110}}},\"lODLevel\":0,\"lODBias\":0,\"lODDistanceFactor\":1,\"bUseLODRange\":false,\"lODRange\":{\"x\":0,\"y\":8},\"mesh\":\"/Script/Engine.StaticMesh'/Engine/ArtTools/RenderToTexture/Meshes/S_1_Unit_Sphere.S_1_Unit_Sphere'\",\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"rotation\":{\"pitch\":0,\"yaw\":0,\"roll\":0},\"pivotOffset\":{\"x\":0,\"y\":0,\"z\":0},\"pivotOffsetSpace\":\"Mesh\"}]";
             OverrideMaterials = "[{\"explicitMat\":\"/Script/Engine.Material'/Game/NeighborGrid3D/Material/M_FX_Spheres.M_FX_Spheres'\",\"userParamBinding\":{\"parameter\":{\"varData\":[],\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":2}}}}]";
@@ -223,7 +226,10 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
         Stage FillGrid = {
             /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Out_FillGridModule(
                 NeighborGrid3DBase = System.MyNeighborGrid3D,
-                WorldToUnitMatrix = System.Grid3D_CreateUnitToWorldTransform.WorldToUnit
+                W2URow0 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[0] },
+                W2URow1 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[1] },
+                W2URow2 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[2] },
+                W2URow3 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[3] }
             );
         }
 
@@ -231,8 +237,14 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
             /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Out_QueryGrid(
                 NeighborGrid3D = System.MyNeighborGrid3D,
                 AttributeReader = Emitter.MyAttributeReader,
-                WorldToUnitMatrix = System.Grid3D_CreateUnitToWorldTransform.WorldToUnit,
-                In_ParticleCollisionRadius = Particles.Radius
+                W2URow0 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[0] },
+                W2URow1 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[1] },
+                W2URow2 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[2] },
+                W2URow3 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[3] },
+                In_ParticleCollisionRadius = Particles.Radius,
+                In_Hit = Particles.Hit,
+                In_PreviousPosition = Particles.MyPrevPos,
+                In_Age = Particles.Age
             );
         }
 
@@ -244,6 +256,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
             SimTarget = GPU;
             CalculateBoundsMode = Fixed;
             QualityLevelMask = 31;
+            Enabled = true;
         }
 
         EmitterUpdate = {
