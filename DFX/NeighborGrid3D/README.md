@@ -17,11 +17,18 @@
   → 单次 PIE 刷 979 条 `Particle read DI is trying to access inexistent variable 'Radius'`，
   而且每次邻居读取都 `continue`，碰撞分离整体失效。现已按原资产恢复，调用点同步去掉 `In_Hit`/`In_PreviousPosition`/`In_Age`。
 
-### 仍然不正确（本轮只记录，未修）
+### 文本已修、待 build/PIE 验证（2026-10-07 第二轮）
 
-- ❌ **碰撞发光缺失**：发光逻辑在原 QueryGrid 模块图里，重写时没有搬进 `.dfm`。
-  注意：现有 `.dfm` 里 `Out_Hit` 的累计与 `Particles.Hit` 的写入是**在**的，所以缺的并不是这两句 ——
-  下一步要先还原原图 QueryGrid 的完整节点清单，再决定补哪一段。
+- **碰撞发光载体**：已定位 —— 原图 `UpdateHit` 在写完 `Hit` 之后还有
+  `Particles.DynamicMaterialParameter = float4(Hit, Hit, Hit, Hit)`；材质 `M_FX_Spheres` 的
+  Dynamic Parameter（"传递撞击事件"）× Glow 驱动 EmissiveColor。迁移时这一句整条丢失，
+  于是 `Hit` 算得再对，材质端也恒为 0 → 完全没有碰撞发光（引擎碰撞与粒子间碰撞都没有）。
+  三个 `*_UpdateHit.dfm` 已补回该写入，并把衰减公式对齐原图：
+  `Hit = (Hit + NewHit) * (1 - clamp(FadeSpeed * DeltaTime, 0, 1))`（原图对累加值不做 saturate）。
+  FX_Syst 原版就没有 UpdateHit / `DynamicMaterialParameter`，保持不加。
+
+### 仍然不正确（未修）
+
 - ❌ **球与球之间的碰撞结果不正确**：粒子间分离的最终表现与原资产不一致（待定位）。
 - 速度**问题**已消失（`Particles.Velocity = In_Velocity` 直通，不再有出生即飞走的巨大初速），
   但这仍是**改写**而非等价还原：原式是 `Age < DeltaTime ? Velocity : (Position − PreviousPosition) * InvDeltaTime`，
@@ -60,6 +67,10 @@
 - `Settings.Usage` 对 Module/DynamicInput 均必填（DFX3030）；DynamicInput 必须写 `Usage = DynamicInput`（DFX3032）
 - GPU 模拟路径禁止整数取模 `%`（DFX6006），用 `fmod` 浮点等价
 - 自定义属性在 Body 内首次出现须带类型：`float Particles.Hit = ...旧值自读...;`（DFX3046）
+- **`.dfm` Body 里 `Type Particles.X = ...;` 的声明正上方不能是注释行**：DFX 只在"语句起始"剥离类型名
+  （`DreamFXModuleGenerator.cpp` 的 pass one：状态仅在 `;`/`{`/`}` 之后置位，任何非空白字符——**包括注释**——都会清掉它），
+  漏剥时 DFX 的类型拼写会原样进 HLSL：`Vector4 Out_Write_… = …` → `error: use of undeclared identifier 'Vector4'`，GPU 编译失败。
+  `.dfs` 的语句走另一条 lowering，不受影响。注释要放在声明**之后**，或放在局部变量声明之前。
 - `ParseStackKind` 只认六种栈名，`.dfm` 无法声明 Stage 用法
 
 ### Stage 调用点模块输入绑定的实测陷阱（2026-10-06/07 修复记录）
