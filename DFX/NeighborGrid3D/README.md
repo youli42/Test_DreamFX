@@ -38,14 +38,13 @@
 - **修复**：Out / Show 两个 QueryGrid 模块恢复原式（`CorrectedPosition` 局部量 + 三元式），
   调用点把 `In_PreviousPosition` 改绑引擎维护的 `Particles.Previous.Position`（见下一节的纠错），
   并删掉死掉的 `MyPrevPos` 写入与声明。**PIE 验证：球互相推开、堆积并溢出盒子。**
-  基础版与 FX_Syst 的原版模块就没有这段重建，不动。
+  基础版与 FX_Syst 的原版模块当时不动（基础版已于 2026-10 模块合并时跟进 Out 算法；FX_Syst 保留原状，理由见「2026-10 模块合并」）。
 
 ### 仍然未还原 / 已知差异
 
-- 四个 `*_QueryGrid` 之间仍是互相克隆（只有 FX_Syst 已按原图分化）。
 - 进网格前的 `Transform Position(Simulation→World)` 未还原。当前发射器都是 world-space，恰好恒等；
   一旦发射器改成 Local Space，就会与 `Grid3D_CreateUnitToWorldTransform` 产出的世界空间矩阵对不上。
-- 基础版 `NS_NeighborGrid3D` / FX_Syst 的 `.dfs` 还留着迁移期加的 `Vector Particles.MyPrevPos` 死声明（无害）。
+- FX_Syst 的 QueryGrid 仍是专属简化版（不并入共享完整版的理由见「2026-10 模块合并」）。
 
 ### 构建 / 提交策略
 
@@ -61,16 +60,51 @@
 | `NS/FX_Syst_NeighborGrid3D.dfs` | `NS/FX_Syst_NeighborGrid3D` | 组件系统版 |
 | `NS/NS_WhatsNeighborGrid.dfs` | `NS/NS_WhatsNeighborGrid` | 概念演示版（Leader 跟随） |
 
-## 脚本（/Game/NeighborGrid3D/NS/Scripts/，20 个）
+## 脚本（/Game/NeighborGrid3D/NS/Scripts/，6 份 .dfm）
 
-原为导出器抽取的独立脚本资产，`.dfs` 按路径引用。**2026-10 起逐个文本化**（schema → .dfm → build → 签名等价验证）：
+原为导出器抽取的独立脚本资产，`.dfs` 按路径引用。**2026-10 起逐个文本化**（schema → .dfm → build → 签名等价验证），
+随后做过一轮**模块合并**（以 `NS_NeighborGrid3D_Out` 的算法为准）。
+
+### 2026-10 模块合并
+
+16 份 `.dfm` 收敛为 6 份：同构拷贝合并为单一共享资产，各 `.dfs` 调用点已全部改指共享路径。
+
+| 共享 `.dfm` | 取代 | 使用者 |
+| --- | --- | --- |
+| `NS_NeighborGrid3D_InitializeGrid` | Out/Show/FX_Syst 三份克隆（Body 逐字节相同） | 全部 4 系统 |
+| `NS_NeighborGrid3D_FillGridModule` | Out/Show/FX_Syst 三份克隆（Body 逐字节相同） | 全部 4 系统 |
+| `NS_NeighborGrid3D_UpdateHit` | Out/Show 两份（内容 = Out 版自读形态；基础版的 `In_Hit` 输入形态与之数学等价，一并退役） | 基础版 / Out / Show |
+| `NS_NeighborGrid3D_QueryGrid` | Out/Show 两份（内容 = Out 版 PBD 算法） | 基础版 / Out / Show |
+| `FX_Syst_NeighborGrid3D_QueryGrid` | —（保留） | FX_Syst |
+| `NS_WhatsNeighborGrid_IntByTIme` | —（DynamicInput，形态不同） | Whats |
+
+- **基础版借合并修正两处真错误**：QueryGrid 从"速度直通 + `MyPrevPos` 死通道"遗留版换成 Out 的
+  PBD 速度重建（调用点 `In_PreviousPosition` 改绑 `Particles.Previous.Position`，删死声明 `MyPrevPos`）；
+  UpdateHit 调用点删掉冗余 `In_Hit` 绑定。FX_Syst 的 `.dfs` 同步删了死声明。
+- **FX_Syst 的 QueryGrid 不并入**：其 Grid 发射器没有 `Particles.Radius`（共享版邻居 Radius 读取会
+  全部失效 → 分离整体失效，即 2026-10-07 记录的 979 条日志 bug 的成因），且无 Drag/力模块
+  （PBD 速度重建会让粒子被推开后永久匀速漂移）。要并入需先给发射器补 Radius 属性与阻尼。
+- 合并只统一算法，不统一调参：各调用点的显式传参保留（基础版 UpdateHit `FadeSpeed=2`、Out/Show `=20`；
+  Show 的 QueryGrid Stage `NumIterations=3`）。
+- 被取代的 10 份 `.dfm` 源文件已删除；Content 里对应脚本资产成为孤儿（构建产物本就不入库），可在编辑器中清理。
+- 跨树同步：`DFX/Boids/README.md` 的复用引用已改为共享规范路径。
+
+### 现存 6 份
 
 | 状态 | 脚本 | 说明 |
 | --- | --- | --- |
-| ✅ 已文本化（16） | `*_InitializeGrid` ×4、`Whats_IntByTIme`、`*_UpdateHit` ×3、`*_FillGridModule` ×4、`*_QueryGrid` ×4 | `.dfm` 在 `NS/Scripts/`，`Name=` 与资产路径一致，构建即接管。矩阵输入统一拆成 `W2URow0..3` 绕过 DFX4021 |
-| ⚠️ 与原图仍有差异（4） | `*_QueryGrid` ×4 | 四者互为克隆；进网格前的 `Transform Position(Simulation→World)` 未还原（当前 world-space 下恒等）。见「仍然未还原 / 已知差异」 |
-| 🚫 输出引脚边界（3） | `Whats_GetLeaderPositionByID/ByIndex`、`Whats_SetLeaderParticle` | 返回值/输出引脚是它们的全部意义；`.dfm` 无 Outputs 节（DFX2017），DynamicInput 仅单表达式（DFX3037） |
-| ⏳ 待引脚数据（1） | `Whats_UpdatePosition` | 写值型可转；算子/Select 接线见 `PinAudit.md` |
+| ✅ 共享 InitializeGrid | `NS_NeighborGrid3D_InitializeGrid` | SystemSpawn `SetNumCells`，全部 4 系统共用 |
+| ✅ 共享 FillGridModule | `NS_NeighborGrid3D_FillGridModule` | Stage FillGrid，全部 4 系统共用 |
+| ✅ 共享 UpdateHit | `NS_NeighborGrid3D_UpdateHit` | 碰撞闪光（Out 自读形态），基础版/Out/Show 共用 |
+| ✅ 共享 QueryGrid | `NS_NeighborGrid3D_QueryGrid` | 碰撞分离 + Hit + PBD 速度重建（Out 算法），基础版/Out/Show 共用 |
+| ✅ FX_Syst 专属 QueryGrid | `FX_Syst_NeighborGrid3D_QueryGrid` | 简化版：阈值 = 半径×2，只写 Position |
+| ✅ DynamicInput | `NS_WhatsNeighborGrid_IntByTIme` | Leader 轮换索引 |
+
+`.dfm` 在 `NS/Scripts/`，`Name=` 与资产路径一致，构建即接管。矩阵输入统一拆成 `W2URow0..3` 绕过 DFX4021。
+⚠️ 遗留差异（与合并无关）：进网格前的 `Transform Position(Simulation→World)` 未还原（当前 world-space 下恒等）。
+🚫 输出引脚边界（3）：`Whats_GetLeaderPositionByID/ByIndex`、`Whats_SetLeaderParticle` —— 返回值/输出引脚是它们的全部意义；
+`.dfm` 无 Outputs 节（DFX2017），DynamicInput 仅单表达式（DFX3037）。
+⏳ 待引脚数据（1）：`Whats_UpdatePosition` —— 写值型可转；算子/Select 接线见 `PinAudit.md`。
 
 ### 已沉淀的实现级规则（文档未载）
 

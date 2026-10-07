@@ -1,12 +1,16 @@
-// 整理自 /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_QueryGrid.NS_NeighborGrid3D_QueryGrid 的图（CustomHLSL ×2 + FunctionCall 链）。
-// 原 CustomHLSL_0：基于 3D 邻域网格的粒子碰撞检测与穿透修正（27 格邻居循环 + 撞击强度累计）；
-// 原 CustomHLSL_2：由位置差重建速度（出生首帧保持初速）。
-// 常量已按原资产引脚值烘焙：HitMin=0 / HitMax=1 / HitRangeMin=10 / HitRangeMax=250 / HitFalloff=1。
-// 变更 1: 原 WorldToUnitMatrix 输入（NiagaraMatrix，.dfm 输入类型白名单不含矩阵 DFX4021）拆为
-//         W2URow0..W2URow3 四个 Vector4 输入，宿主 .dfs 调用点用内联 hlsl{} 从 System 矩阵取行。
-// 变更 2: 原 In_Hit 为图内读 Particles.Hit —— .dfm 模块对自定义属性自读触发 DFX3046，
-//         升级为模块输入，宿主调用点传 In_Hit = Particles.Hit。
-// 用途: Stage QueryGrid —— 读邻域网格做粒子间碰撞分离与命中强度计算（写入 Position/Hit/Velocity）。
+// 规范共享模块（2026-10 合并）：基础版 / Out / Show 三个系统共用本资产，算法以 Out 版为准。
+//   原 CustomHLSL_0：27 格邻居循环碰撞检测；CustomHLSL_2：位置差重建速度。
+//   常量已按原资产引脚值烘焙：HitMin=0 / HitMax=1 / HitRangeMin=10 / HitRangeMax=250 / HitFalloff=1。
+// 变更: WorldToUnitMatrix 拆为 W2URow0..3；In_Hit/In_PreviousPosition/In_Age 升级为模块输入（规避 DFX3046）。
+// 修复(2026-10-07): 原 CustomHLSL_2 的速度重建曾被改成 `Particles.Velocity = In_Velocity;` 直通
+//   （当时的理由：阶段调用点绑定 MyPrevPos 读不到值）。结果是分离只剩位置投影、没有动量反馈 →
+//   密集堆叠互相穿模且不溢出盒子。现按原图恢复重建，并把 In_PreviousPosition 改绑
+//   Particles.Previous.Position（引擎每帧开头会把 Position 自拷贝给它，这条通道是活的）。
+// 合并(2026-10): 本模块取代 Out_QueryGrid / Show_QueryGrid（两者 Body 与本内容逐行相同）；
+//   基础版遗留的"速度直通 + MyPrevPos 死通道"变体一并退役，基础版调用点改绑 Previous.Position。
+//   FX_Syst 不使用本模块：其 Grid 发射器没有 Particles.Radius（邻居 Radius 读取会全部失效），
+//   且没有 Drag/力模块（PBD 速度重建会令粒子被推开后永久漂移），保留其简化版 QueryGrid。
+// 用途: Stage QueryGrid —— 粒子间碰撞分离与命中强度计算（写入 Position/Hit/Velocity）。
 // 注意: Name= 与既有脚本资产路径一致，构建本文件会原位接管该资产。
 Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_QueryGrid", Root="Game")
 {
@@ -33,12 +37,9 @@ Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_QueryGrid", Root="Game"
         float4x4 WorldToUnitMatrix = float4x4(W2URow0, W2URow1, W2URow2, W2URow3);
 
         // ==== 捕获旧值（写回前的原始属性） ====
-        // 上一帧位置经 In_PreviousPosition 输入由调用点栈层回读 Particles.MyPrevPos（本模块帧末写入）；
-        // Body 内"写过的属性不能自读"（读取绑定 Write_ 引脚产生 NaN），故旧值一律走输入。
         float3 In_Position = Particles.Position;
         float3 In_Velocity = Particles.Velocity;
         float In_DeltaTime = Engine.DeltaTime;
-        float In_InvDeltaTime = 1.0 / In_DeltaTime;
         int In_ExecutionIndex = ExecIndex();
 
         // 原 CustomHLSL_0：碰撞检测与穿透修正（HitMin=0, HitMax=1, HitRangeMin=10, HitRangeMax=250, HitFalloff=1）
@@ -135,16 +136,16 @@ Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_QueryGrid", Root="Game"
 #endif
 
         // ==== 写回 ====
-        Particles.Position = In_Position + Out_PenetrationOffset;
+        // 修复(2026-10-07): 恢复原图 CustomHLSL_2 的速度重建（PBD 的 velocity update）。
+        // 把本帧实际位移（力 + 分离修正）折回速度，下一帧粒子已带着分离产生的动量往外走，
+        // 密集堆叠才会撑开并溢出；只做位置投影（速度直通）会让积分每帧把球重新压回重叠，
+        // 而修正又按 CollisionCount 取平均 → 平衡态就是很深的互相穿模。
+        float3 CorrectedPosition = In_Position + Out_PenetrationOffset;
+        Particles.Position = CorrectedPosition;
         float Particles.Hit = Out_Hit;
-        Vector Particles.MyPrevPos = In_Position;
 
-        // 原 CustomHLSL_2：由位置差重建速度（出生首帧保持初速）
-        // 出生帧 Age 与 DeltaTime 精确相等，必须用 <= 才能命中"首帧保初速"分支：
-        // 若走重建分支，此时 MyPrevPos 仍为出生默认 (0,0,0)，V = In_Position/dt
-        // 是朝离世界原点方向的巨大初速（系统离原点越远越明显，表现为粒子出生即同向飞走）。
-        // 语义等价改写：MyPrevPos 语义下位置差重建 ≈ 物理位移速度，直接保留物理速度等价，
-        // 且免疫 Stage 调用点模块输入绑定读不到上帧值的问题（实测该绑定每帧读到 0）。
-        Particles.Velocity = In_Velocity;
+        // In_PreviousPosition 由调用点绑定 Particles.Previous.Position（引擎每帧开头把 Position 自拷贝给它）。
+        // 原先绑定自定义 Particles.MyPrevPos，实测读不到值，于是被改成直通 —— 那正是本次修掉的差异。
+        Particles.Velocity = In_Age < In_DeltaTime ? In_Velocity : (CorrectedPosition - In_PreviousPosition) * Engine.InverseDeltaTime;
     }
 }

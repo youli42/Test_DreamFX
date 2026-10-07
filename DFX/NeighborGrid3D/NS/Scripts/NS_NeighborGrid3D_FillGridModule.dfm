@@ -1,3 +1,6 @@
+// 规范共享模块（2026-10 合并）：基础版 / Out / Show / FX_Syst 四个系统共用本资产。
+//   四份 *_FillGridModule 原本 Body 逐字节相同，仅 Name 不同，故合并为这一份；
+//   Out/Show/FX_Syst 的同名脚本资产已无源文件、成为孤儿（见 README）。
 // 整理自 /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_FillGridModule.NS_NeighborGrid3D_FillGridModule 的图。
 // 原图为 CustomHLSL 与 FunctionCall 链（SimulationToUnit → UnitToIndex → AddParticle）双实现，逻辑一致；
 // 本 Body 采用 CustomHLSL 全文（作者含中文注释），In_ExecIndex 由 ExecIndex() 内建等价替代。

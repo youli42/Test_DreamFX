@@ -1,3 +1,6 @@
+// 规范共享模块（2026-10 合并）：基础版 / Out / Show / FX_Syst 四个系统共用本资产。
+//   四份 *_InitializeGrid 原本 Body 逐字节相同，仅 Name 不同，故合并为这一份；
+//   Out/Show/FX_Syst 的同名脚本资产已无源文件、成为孤儿（见 README）。
 // 整理自 /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_InitializeGrid.NS_NeighborGrid3D_InitializeGrid 的图。
 // 原图是薄封装：Module 输入 → NeighborGrid3D.SetNumCells（DI 成员函数，CPU-only）→ Success 输出。
 // 用途: 配置 NeighborGrid3D 的三轴单元数与每格邻居上限（.dfs 在 SystemSpawn 调用）。

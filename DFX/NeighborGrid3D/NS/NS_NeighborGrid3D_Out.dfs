@@ -2,6 +2,8 @@
 // 用途: 外部发射版 —— 参数同基础版（Cells 40^3，GridSize 4000^3，MaxNeighbors 20）。
 // 内联算术未被还原：表达式以等价的 hlsl { } 块形式导出。
 // 本源文件直接原位构建资产 /Game/NeighborGrid3D/NS/NS_NeighborGrid3D_Out。
+// 2026-10: 四个脚本模块已并入共享资产 NS_NeighborGrid3D_*（InitializeGrid / FillGridModule /
+//          UpdateHit / QueryGrid），碰撞分离算法以本系统为准。
 //
 // 本文件未承载 —— 原资产有 2 个 DreamFXLang 尚无法表达的特性，
 // 重建出的镜像资产将缺失它们：
@@ -26,7 +28,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
 
     SystemSpawn = {
         DI<NeighborGrid3D> System.MyNeighborGrid3D = "{\"MaxNeighborsPerCell\":24,\"ClearBeforeNonIterationStage\":true,\"NumCells\":{\"x\":3,\"y\":3,\"z\":3},\"CellSize\":1,\"NumCellsMaxAxis\":10,\"SetResolutionMethod\":\"CellSize\",\"WorldBBoxSize\":{\"x\":100,\"y\":100,\"z\":100}}";
-        /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Out_InitializeGrid(
+        /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_InitializeGrid(
             MyNeighborGrid3DIn = System.MyNeighborGrid3D,
             MaxNeighborsPerCell = User.MaxNeighbors,
             NumCellsX = User.CellsX,
@@ -191,7 +193,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
                 WritetoIntrinsicProperties = true,
                 DeltaTime = Transient.PhysicsDeltaTime
             );
-            /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Out_UpdateHit(
+            /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_UpdateHit(
                 CollisionValue = MakeCustomFloatFromBool(
         Bool = Output.Collision.CollisionValid,
         TrueFloat = VectorLength(
@@ -223,7 +225,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
             OverrideMaterials = "[{\"explicitMat\":\"/Script/Engine.Material'/Game/NeighborGrid3D/Material/M_FX_Spheres.M_FX_Spheres'\",\"userParamBinding\":{\"parameter\":{\"varData\":[],\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":2}}}}]";
         }
         Stage FillGrid = {
-            /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Out_FillGridModule(
+            /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_FillGridModule(
                 NeighborGrid3DBase = System.MyNeighborGrid3D,
                 W2URow0 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[0] },
                 W2URow1 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[1] },
@@ -233,7 +235,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
         }
 
         Stage QueryGrid = {
-            /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Out_QueryGrid(
+            /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_QueryGrid(
                 NeighborGrid3D = System.MyNeighborGrid3D,
                 AttributeReader = Emitter.MyAttributeReader,
                 W2URow0 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[0] },
