@@ -2,6 +2,10 @@
 // 原 CustomHLSL_0：27 格邻居循环碰撞检测；CustomHLSL_2：位置差重建速度。
 // 常量已按原资产引脚值烘焙：HitMin=0 / HitMax=1 / HitRangeMin=10 / HitRangeMax=250 / HitFalloff=1。
 // 变更: WorldToUnitMatrix 拆为 W2URow0..3；In_Hit/In_PreviousPosition/In_Age 升级为模块输入（规避 DFX3046）。
+// 修复(2026-10-07): 原 CustomHLSL_2 的速度重建曾被改成 `Particles.Velocity = In_Velocity;` 直通
+//   （当时的理由：阶段调用点绑定 MyPrevPos 读不到值）。结果是分离只剩位置投影、没有动量反馈 →
+//   密集堆叠互相穿模且不溢出盒子。现按原图恢复重建，并把 In_PreviousPosition 改绑
+//   Particles.Previous.Position（引擎每帧开头会把 Position 自拷贝给它，这条通道是活的）。
 // 用途: Stage QueryGrid —— 粒子间碰撞分离与命中强度计算（写入 Position/Hit/Velocity）。
 // 注意: Name= 与既有脚本资产路径一致，构建本文件会原位接管该资产。
 Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Show_QueryGrid", Root="Game")
@@ -128,14 +132,16 @@ Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_Show_QueryGrid", Root="
 #endif
 
         // ==== 写回 ====
-        Particles.Position = In_Position + Out_PenetrationOffset;
+        // 修复(2026-10-07): 恢复原图 CustomHLSL_2 的速度重建（PBD 的 velocity update）。
+        // 把本帧实际位移（力 + 分离修正）折回速度，下一帧粒子已带着分离产生的动量往外走，
+        // 密集堆叠才会撑开并溢出；只做位置投影（速度直通）会让积分每帧把球重新压回重叠，
+        // 而修正又按 CollisionCount 取平均 → 平衡态就是很深的互相穿模。
+        float3 CorrectedPosition = In_Position + Out_PenetrationOffset;
+        Particles.Position = CorrectedPosition;
         float Particles.Hit = Out_Hit;
-        Vector Particles.MyPrevPos = In_Position;
 
-        // 原 CustomHLSL_2：由位置差重建速度（出生首帧保持初速）
-        // 语义等价改写：MyPrevPos 语义下位置差重建 ≈ 物理位移速度，直接保留物理速度等价，
-        // 且免疫 Stage 调用点模块输入绑定读不到上帧值的问题（实测该绑定每帧读到 0，
-        // 原始图读的 Particles.Previous.Position 也是无人维护的死属性）。
-        Particles.Velocity = In_Velocity;
+        // In_PreviousPosition 由调用点绑定 Particles.Previous.Position（引擎每帧开头把 Position 自拷贝给它）。
+        // 原先绑定自定义 Particles.MyPrevPos，实测读不到值，于是被改成直通 —— 那正是本次修掉的差异。
+        Particles.Velocity = In_Age < In_DeltaTime ? In_Velocity : (CorrectedPosition - In_PreviousPosition) * Engine.InverseDeltaTime;
     }
 }

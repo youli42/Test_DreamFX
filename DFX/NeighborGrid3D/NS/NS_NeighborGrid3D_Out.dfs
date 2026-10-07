@@ -129,7 +129,6 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
                 UseOwnerScale = true
             );
             float Particles.Hit = 0.0;
-            Vector Particles.MyPrevPos = (0.0, 0.0, 0.0);
         }
 
         ParticleUpdate = {
@@ -243,7 +242,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Out", Root="Game")
                 W2URow3 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[3] },
                 In_ParticleCollisionRadius = Particles.Radius,
                 In_Hit = Particles.Hit,
-                In_PreviousPosition = Particles.MyPrevPos,
+                In_PreviousPosition = Particles.Previous.Position,
                 In_Age = Particles.Age
             );
         }

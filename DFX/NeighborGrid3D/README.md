@@ -17,7 +17,7 @@
   → 单次 PIE 刷 979 条 `Particle read DI is trying to access inexistent variable 'Radius'`，
   而且每次邻居读取都 `continue`，碰撞分离整体失效。现已按原资产恢复，调用点同步去掉 `In_Hit`/`In_PreviousPosition`/`In_Age`。
 
-### 文本已修、待 build/PIE 验证（2026-10-07 第二轮）
+### 已修并验证：碰撞发光（2026-10-07 第二轮）
 
 - **碰撞发光载体**：已定位 —— 原图 `UpdateHit` 在写完 `Hit` 之后还有
   `Particles.DynamicMaterialParameter = float4(Hit, Hit, Hit, Hit)`；材质 `M_FX_Spheres` 的
@@ -25,17 +25,27 @@
   于是 `Hit` 算得再对，材质端也恒为 0 → 完全没有碰撞发光（引擎碰撞与粒子间碰撞都没有）。
   三个 `*_UpdateHit.dfm` 已补回该写入，并把衰减公式对齐原图：
   `Hit = (Hit + NewHit) * (1 - clamp(FadeSpeed * DeltaTime, 0, 1))`（原图对累加值不做 saturate）。
-  FX_Syst 原版就没有 UpdateHit / `DynamicMaterialParameter`，保持不加。
+  FX_Syst 原版就没有 UpdateHit / `DynamicMaterialParameter`，保持不加。**PIE 验证：闪光恢复。**
 
-### 仍然不正确（未修）
+### 已修并验证：粒子间碰撞（2026-10-07 第三轮）
 
-- ❌ **球与球之间的碰撞结果不正确**：粒子间分离的最终表现与原资产不一致（待定位）。
-- 速度**问题**已消失（`Particles.Velocity = In_Velocity` 直通，不再有出生即飞走的巨大初速），
-  但这仍是**改写**而非等价还原：原式是 `Age < DeltaTime ? Velocity : (Position − PreviousPosition) * InvDeltaTime`，
-  且读的是**修正后**的 Position；`In_PreviousPosition` / `In_Age` 目前在模块里是死输入。
+- **根因：速度写回被改成直通**。原图 `CustomHLSL_2` 是 PBD 的 velocity update：
+  `Velocity = Age < DeltaTime ? Velocity : (修正后Position − Previous.Position) * InvDeltaTime`，
+  把本帧实际位移（力 + 分离修正）折回速度；迁移时被改成 `Particles.Velocity = In_Velocity;`
+  （当时的理由：调用点把 `In_PreviousPosition` 绑到了自定义 `MyPrevPos`，实测读不到值）。
+  结果是分离只剩位置投影：积分每帧把球重新压回重叠，而修正又按 `CollisionCount` 取平均
+  → 平衡态是很深的互相穿模（"穿模"），且没有动量外推 → 堆不起来、不溢出盒子。
+- **修复**：Out / Show 两个 QueryGrid 模块恢复原式（`CorrectedPosition` 局部量 + 三元式），
+  调用点把 `In_PreviousPosition` 改绑引擎维护的 `Particles.Previous.Position`（见下一节的纠错），
+  并删掉死掉的 `MyPrevPos` 写入与声明。**PIE 验证：球互相推开、堆积并溢出盒子。**
+  基础版与 FX_Syst 的原版模块就没有这段重建，不动。
+
+### 仍然未还原 / 已知差异
+
 - 四个 `*_QueryGrid` 之间仍是互相克隆（只有 FX_Syst 已按原图分化）。
 - 进网格前的 `Transform Position(Simulation→World)` 未还原。当前发射器都是 world-space，恰好恒等；
   一旦发射器改成 Local Space，就会与 `Grid3D_CreateUnitToWorldTransform` 产出的世界空间矩阵对不上。
+- 基础版 `NS_NeighborGrid3D` / FX_Syst 的 `.dfs` 还留着迁移期加的 `Vector Particles.MyPrevPos` 死声明（无害）。
 
 ### 构建 / 提交策略
 
@@ -58,7 +68,7 @@
 | 状态 | 脚本 | 说明 |
 | --- | --- | --- |
 | ✅ 已文本化（16） | `*_InitializeGrid` ×4、`Whats_IntByTIme`、`*_UpdateHit` ×3、`*_FillGridModule` ×4、`*_QueryGrid` ×4 | `.dfm` 在 `NS/Scripts/`，`Name=` 与资产路径一致，构建即接管。矩阵输入统一拆成 `W2URow0..3` 绕过 DFX4021 |
-| ⚠️ 已知缺陷（4） | `*_QueryGrid` ×4 | 碰撞发光未迁移、球间碰撞结果不正确；见「当前状态与已知缺陷（2026-10-07）」 |
+| ⚠️ 与原图仍有差异（4） | `*_QueryGrid` ×4 | 四者互为克隆；进网格前的 `Transform Position(Simulation→World)` 未还原（当前 world-space 下恒等）。见「仍然未还原 / 已知差异」 |
 | 🚫 输出引脚边界（3） | `Whats_GetLeaderPositionByID/ByIndex`、`Whats_SetLeaderParticle` | 返回值/输出引脚是它们的全部意义；`.dfm` 无 Outputs 节（DFX2017），DynamicInput 仅单表达式（DFX3037） |
 | ⏳ 待引脚数据（1） | `Whats_UpdatePosition` | 写值型可转；算子/Select 接线见 `PinAudit.md` |
 
@@ -73,19 +83,22 @@
   `.dfs` 的语句走另一条 lowering，不受影响。注释要放在声明**之后**，或放在局部变量声明之前。
 - `ParseStackKind` 只认六种栈名，`.dfm` 无法声明 Stage 用法
 
-### Stage 调用点模块输入绑定的实测陷阱（2026-10-06/07 修复记录）
+### Stage 调用点模块输入绑定：一次误判与纠正（2026-10-06/07 → 2026-10-07 纠错）
 
-- **Stage 调用点的模块输入绑定读不到上帧值**：`In_PreviousPosition = Particles.MyPrevPos`
-  在 FillGrid（写入方）之后的 QueryGrid 阶段里，实测每帧读到出生默认 (0,0,0)。
-  位置差重建 `V = (In_Position − In_PreviousPosition)/dt` 退化为 `V = In_Position/dt`
-  ——朝离世界原点方向的巨大初速（|位置|/dt，被 SpeedLimit 钳制）。
-  系统离世界原点越远越明显；SpawnRate 持续生成的系统表现为持续粒子束。
-- **`Particles.Previous.Position` 是无人维护的死属性**：原始图的重建节点读它
-  （作者假设引擎自动维护上帧位置），但整个 Niagara 运行时没有任何代码写入它
-  （仅 NiagaraConstants.cpp 的类型注册表提及），恒为 (0,0,0)，同样触发上式。
-- **修复**：QueryGrid 的速度写回改为 `Particles.Velocity = In_Velocity`——
-  在 MyPrevPos 语义下位置差重建本就 ≈ 物理位移速度，直接保留物理速度语义等价，
-  分离修正保持纯位置修正（标准 PBD），并免疫上述两个坑。四个系统统一应用。
+- **当时的观察（成立）**：`In_PreviousPosition = Particles.MyPrevPos`（自定义属性，由**同一个模块**帧末写入）
+  在 QueryGrid 阶段实测每帧读到出生默认 (0,0,0)。位置差重建因此退化为 `V = In_Position/dt`
+  ——朝远离世界原点方向的巨大初速（被 SpeedLimit 钳制）；系统离原点越远越明显。
+- **当时的结论（不成立，已纠正）**："`Particles.Previous.Position` 是无人维护的死属性，恒为 (0,0,0)"。
+  它是**被引擎逐帧维护**的：生成的更新脚本里有
+  `Context.MapUpdate.Particles.Previous.Position = Context.MapUpdate.Particles.Position;`
+  （原资产与重建资产里都能搜到；写在 Update 之前，所以阶段读到的是"本帧起始位置"＝上一帧末位置）。
+  ⚠️ 这条自拷贝只在**发射器引用了 `Particles.Previous.*`** 时才生成 —— 不引用就没有。
+- **正确的修复（2026-10-07）**：不是删掉重建，而是换数据源 —— 调用点绑定引擎维护的
+  `Particles.Previous.Position`（`.dfs` 里读它有先例：`NS_WhatsNeighborGrid.dfs` 的
+  `Vector Particles.PreviousPosition = Particles.Previous.Position;`）。
+  删掉重建会连带丢掉 PBD 的动量反馈 → 密集堆叠互穿（见上一节）。
+- **教训**：自定义属性 `MyPrevPos` 读不到 ≠ 引擎的 `Previous.*` 通道不可用。
+  先看生成代码里有没有那条自拷贝，再决定"换数据源"还是"删逻辑"。
 - **基础版附带修复**（同日发现的两处转换丢失，对照 original.facts 还原）：
   - Grid/DebugGrid_0 发射器的 `FixedBounds = box(±100)` 被导出丢弃（DFX7101），已还原；
   - `InitializeParticle.Lifetime = 1.0` 被丢弃（→0，粒子永久存活后被 ±100 边界剔除），
