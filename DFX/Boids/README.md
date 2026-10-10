@@ -1,11 +1,11 @@
 # DFX/Boids — 基于 NeighborGrid3D 的 Boids 集群（文本源）
 
-目录布局镜像内容浏览器路径 `/Game/Boids/...`（与 `DFX/NeighborGrid3D` 同一套约定）：
+工作区横跨两棵树（Niagara 文本源在 DFX，关卡在 UE Content）：
 
-| 文件夹 | 内容 | 构建目标（原位） |
+| 位置 | 内容 | 对应引擎路径 |
 | --- | --- | --- |
-| `Niagara/` | `.dfs`（Niagara 系统）、`.dfm`（模块）、`.dfe`（发射器）文本源 | `/Game/Boids/Niagara/...` |
-| `Maps/` | 关卡占位。`.umap` 无法由 DFX 文本表达，需在编辑器内创建后保存到 `/Game/Boids/Maps/` | `/Game/Boids/Maps/...` |
+| `DFX/Boids/Niagara/` | `.dfs`（Niagara 系统）、`.dfm`（模块）、`.dfe`（发射器）文本源 | 构建到 `/Game/Boids/Niagara/...`（原位） |
+| `Content/Boids/Maps/` | 关卡。`.umap` 无法由 DFX 文本表达，在编辑器内创建后保存到这里（`.gitignore` 只收 `.uasset`/`.umap`，无需占位文件） | `/Game/Boids/Maps/...` |
 
 ## 命名约定
 
