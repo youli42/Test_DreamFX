@@ -18,7 +18,8 @@
 ```
 /Content/NeighborGrid3D/NS/*.uasset      NS_NeighborGrid3D、NS_NeighborGrid3D_Out、NS_NeighborGrid3D_Show、
                                          NS_WhatsNeighborGrid、FX_Syst_NeighborGrid3D
-/Content/NeighborGrid3D/NS/Scripts/      6 个共享模块（InitializeGrid / FillGridModule / UpdateHit / QueryGrid 等）
+/Content/NeighborGrid3D/NS/Scripts/      4 个脚本（UpdateHit / QueryGrid / FX_Syst_QueryGrid / IntByTIme）
+/Content/Shared/NeighborGrid/Scripts/    2 个共享模块（InitializeGrid / FillGridModule，2026-10-10 自 NeighborGrid3D 迁入）
 /Content/Samples/Niagara/*.uasset        NS_HelloBurst、NS_CurlSmokeWisp、NS_MagicFountain
 /Content/Decompiled/                     旧的反编译镜像位置（已废弃）
 ```

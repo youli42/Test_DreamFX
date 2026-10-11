@@ -13,10 +13,11 @@
 
 ## 计划（Boids 管线，复用 NeighborGrid3D）
 
-- **复用**（按路径引用现成资产，不复制）：
-  - `NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_InitializeGrid`（共享规范版；2026-10 起四系统合一份）→ SystemSpawn 里 `SetNumCells`
-  - `NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_FillGridModule`（共享规范版）→ Stage FillGrid
-  - `NeighborGrid3D/NM/Grid3D_CreateUnitToWorldTransform`（图模块）→ SystemUpdate
+- **复用**（按路径引用现成资产，不复制；2026-10-10 起这些基础设施已上移至共享目录
+  `DFX/Shared/NeighborGrid/`，与 NeighborGrid3D 演示目录解耦）：
+  - `Shared/NeighborGrid/Scripts/NeighborGrid_InitializeGrid`（原 `NS_NeighborGrid3D_InitializeGrid`，四系统合一份）→ SystemSpawn 里 `SetNumCells`
+  - `Shared/NeighborGrid/Scripts/NeighborGrid_FillGridModule`（原 `NS_NeighborGrid3D_FillGridModule`）→ Stage FillGrid
+  - `Shared/NeighborGrid/NM/Grid3D_CreateUnitToWorldTransform`（图模块，编辑器内迁移）→ SystemUpdate
 - **新写**（仅 2 个文本文件）：
   - `Niagara/BoidsQueryGrid.dfm` — 27 邻格查询 + 分离/对齐/聚合三规则（steering 形式），
     循环骨架与 `NS_NeighborGrid3D_QueryGrid.dfm`（共享规范版，算法以 Out 为准）一致，仅替换循环体；

@@ -2,8 +2,9 @@
 // 用途: 展示版 —— 彩色球粒子 + DebugGrid 调试网格，供 Map 展示（Cells 35^3，GridSize 4500x4500x600，MaxNeighbors 10）。
 // 2026-10：构建产物已从 /Game/Decompiled/ 迁回 /Game/NeighborGrid3D，
 // 因此本源文件现在直接原位构建资产 /Game/NeighborGrid3D/NS/NS_NeighborGrid3D_Show。
-// 2026-10: 四个脚本模块已并入共享资产 NS_NeighborGrid3D_*（InitializeGrid / FillGridModule /
-//          UpdateHit / QueryGrid）；本系统的 QueryGrid 阶段保留 NumIterations = 3（每帧 3 轮迭代，展示用调参）。
+// 2026-10: 四个脚本模块已并入共享资产 NS_NeighborGrid3D_*（UpdateHit / QueryGrid 仍在本目录）；
+//          InitializeGrid / FillGridModule 已于 2026-10-10 上移至 /Game/Shared/NeighborGrid/Scripts/；
+//          本系统的 QueryGrid 阶段保留 NumIterations = 3（每帧 3 轮迭代，展示用调参）。
 // 内联算术未被还原：表达式以等价的 hlsl { } 块形式导出。
 //
 // 本文件未承载 —— 原资产有 2 个 DreamFXLang 尚无法表达的特性，
@@ -29,7 +30,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Show", Root="Game")
 
     SystemSpawn = {
         DI<NeighborGrid3D> System.MyNeighborGrid3D = "{\"MaxNeighborsPerCell\":24,\"ClearBeforeNonIterationStage\":true,\"NumCells\":{\"x\":3,\"y\":3,\"z\":3},\"CellSize\":1,\"NumCellsMaxAxis\":10,\"SetResolutionMethod\":\"CellSize\",\"WorldBBoxSize\":{\"x\":100,\"y\":100,\"z\":100}}";
-        /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_InitializeGrid(
+        /Game/Shared/NeighborGrid/Scripts/NeighborGrid_InitializeGrid(
             MyNeighborGrid3DIn = System.MyNeighborGrid3D,
             MaxNeighborsPerCell = User.MaxNeighbors,
             NumCellsX = User.CellsX,
@@ -45,7 +46,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Show", Root="Game")
             RecalculateDurationEachLoop = false,
             UseLoopDelay = false
         );
-        /Game/NeighborGrid3D/NM/Grid3D_CreateUnitToWorldTransform(
+        /Game/Shared/NeighborGrid/NM/Grid3D_CreateUnitToWorldTransform(
             CameraFacing = false,
             Offset = Engine.Owner.Position,
             Rotation = Engine.Owner.Rotation,
@@ -224,7 +225,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D_Show", Root="Game")
             OverrideMaterials = "[{\"explicitMat\":\"/Script/Engine.Material'/Game/NeighborGrid3D/Material/M_FX_Spheres.M_FX_Spheres'\",\"userParamBinding\":{\"parameter\":{\"varData\":[],\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":2}}}}]";
         }
         Stage FillGrid = {
-            /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_FillGridModule(
+            /Game/Shared/NeighborGrid/Scripts/NeighborGrid_FillGridModule(
                 NeighborGrid3DBase = System.MyNeighborGrid3D,
                 W2URow0 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[0] },
                 W2URow1 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[1] },

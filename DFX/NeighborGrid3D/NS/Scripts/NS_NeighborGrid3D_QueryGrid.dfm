@@ -12,6 +12,8 @@
 //   且没有 Drag/力模块（PBD 速度重建会令粒子被推开后永久漂移），保留其简化版 QueryGrid。
 // 用途: Stage QueryGrid —— 粒子间碰撞分离与命中强度计算（写入 Position/Hit/Velocity）。
 // 注意: Name= 与既有脚本资产路径一致，构建本文件会原位接管该资产。
+// 修复(2026-10-10): 插件收紧 DFX3057 —— Body 一旦出现 #if，其后所有语句都视为"条件内"（不随 #endif 复位），
+//   `float Particles.Hit = Out_Hit;` 改为 #if 前裸类型声明 + #endif 后普通赋值（语义不变）。
 Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_QueryGrid", Root="Game")
 {
     Settings = {
@@ -41,6 +43,10 @@ Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_QueryGrid", Root="Game"
         float3 In_Velocity = Particles.Velocity;
         float In_DeltaTime = Engine.DeltaTime;
         int In_ExecutionIndex = ExecIndex();
+        float Particles.Hit;
+        // DFX3057（插件收紧，见 CHANGELOG 2026-10 条）：Particles.Hit 用裸类型声明读入现值
+        // （与调用点 In_Hit 同源），写回放在 #endif 之后做普通赋值 —— #if 之后任何
+        // `float Particles.X = ...;` 都会被判为条件内初始化（bHasConditionalPreprocessing 不随 #endif 复位）。
 
         // 原 CustomHLSL_0：碰撞检测与穿透修正（HitMin=0, HitMax=1, HitRangeMin=10, HitRangeMax=250, HitFalloff=1）
         // 修复(2026-10-07): 原 CustomHLSL_0 在 #if 之前显式清零；迁移时丢掉后累加器初值未定义
@@ -142,7 +148,7 @@ Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_QueryGrid", Root="Game"
         // 而修正又按 CollisionCount 取平均 → 平衡态就是很深的互相穿模。
         float3 CorrectedPosition = In_Position + Out_PenetrationOffset;
         Particles.Position = CorrectedPosition;
-        float Particles.Hit = Out_Hit;
+        Particles.Hit = Out_Hit;
 
         // In_PreviousPosition 由调用点绑定 Particles.Previous.Position（引擎每帧开头把 Position 自拷贝给它）。
         // 原先绑定自定义 Particles.MyPrevPos，实测读不到值，于是被改成直通 —— 那正是本次修掉的差异。

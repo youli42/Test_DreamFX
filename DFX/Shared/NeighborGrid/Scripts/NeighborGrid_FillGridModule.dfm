@@ -1,14 +1,16 @@
+// 共享网格基础设施（2026-10-10 自 NeighborGrid3D/NS/Scripts/ 迁入 Shared/NeighborGrid/）：
+//   Boids 等外部效果按路径复用网格设施，不再依赖 NeighborGrid3D 演示目录；
+//   原资产 NS_NeighborGrid3D_FillGridModule 随之退役（旧 .dfm 源已删除，旧构建产物为孤儿，可在编辑器中清理）。
 // 规范共享模块（2026-10 合并）：基础版 / Out / Show / FX_Syst 四个系统共用本资产。
-//   四份 *_FillGridModule 原本 Body 逐字节相同，仅 Name 不同，故合并为这一份；
-//   Out/Show/FX_Syst 的同名脚本资产已无源文件、成为孤儿（见 README）。
+//   四份 *_FillGridModule 原本 Body 逐字节相同，仅 Name 不同，故合并为这一份。
 // 整理自 /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_FillGridModule.NS_NeighborGrid3D_FillGridModule 的图。
 // 原图为 CustomHLSL 与 FunctionCall 链（SimulationToUnit → UnitToIndex → AddParticle）双实现，逻辑一致；
 // 本 Body 采用 CustomHLSL 全文（作者含中文注释），In_ExecIndex 由 ExecIndex() 内建等价替代。
 // 变更: 原 WorldToUnitMatrix 输入（NiagaraMatrix，.dfm 输入类型白名单不含矩阵 DFX4021）拆为
 //       W2URow0..W2URow3 四个 Vector4 输入，宿主 .dfs 调用点用内联 hlsl{} 从 System 矩阵取行。
 // 用途: Stage FillGrid —— 把每个粒子按位置登记进 NeighborGrid3D 的对应单元（DI 写入阶段）。
-// 注意: Name= 与既有脚本资产路径一致，构建本文件会原位接管该资产。
-Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_FillGridModule", Root="Game")
+// 注意: Name= 与资产路径一致，构建本文件原位接管 /Game/Shared/NeighborGrid/Scripts/NeighborGrid_FillGridModule。
+Module(Name="Shared/NeighborGrid/Scripts/NeighborGrid_FillGridModule", Root="Game")
 {
     Settings = {
         Usage       = ParticleUpdate;

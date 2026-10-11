@@ -16,6 +16,8 @@
 // 材质 M_FX_Spheres 的 Dynamic Parameter（"传递撞击事件"）× Glow 驱动 EmissiveColor，
 // 少了这一句，Hit 算得再对材质端也恒为 0 → 完全没有碰撞发光。
 // 同时把衰减公式对齐原图：只 clamp 衰减因子，不再对累加值 saturate。
+// 修复(2026-10-10): 插件收紧 DFX3057 —— `float Particles.Hit = (Particles.Hit + NewHit) * Fade;` 在自身
+//   初始化器内自读被判错，改为裸类型声明 + 普通赋值（读入现值，语义不变）。
 Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_UpdateHit", Root="Game")
 {
     Settings = {
@@ -36,7 +38,8 @@ Module(Name="NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_UpdateHit", Root="Game"
     Body = {
         float NewHit = CollisionMin + saturate((CollisionValue - CollisionRangeMin) / (CollisionRangeMax - CollisionRangeMin)) * (CollisionMax - CollisionMin);
         float Fade   = 1.0 - saturate(FadeSpeed * Engine.DeltaTime);
-        float Particles.Hit = (Particles.Hit + NewHit) * Fade;
+        float Particles.Hit;
+        Particles.Hit = (Particles.Hit + NewHit) * Fade;
         Vector4 Particles.DynamicMaterialParameter = (Particles.Hit, Particles.Hit, Particles.Hit, Particles.Hit);
         // 上一句是发光载体（原图 UpdateHit 收尾的第二句）：材质 M_FX_Spheres 的
         // Dynamic Parameter（"传递撞击事件"）× Glow 驱动 EmissiveColor —— 迁移时整条丢失，故完全没有闪光。

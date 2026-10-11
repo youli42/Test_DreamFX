@@ -48,7 +48,8 @@
 
 ### 构建 / 提交策略
 
-只提交文字；**编译产物不入库**（`Content/NeighborGrid3D/NS/Scripts/` 已在 `.gitignore` 中排除）。
+只提交文字；**编译产物不入库**（`Content/NeighborGrid3D/NS/Scripts/` 与
+`Content/Shared/NeighborGrid/Scripts/` 均已在 `.gitignore` 中排除）。
 
 ## 系统（.dfs → /Game/NeighborGrid3D/NS/）
 
@@ -60,10 +61,14 @@
 | `NS/FX_Syst_NeighborGrid3D.dfs` | `NS/FX_Syst_NeighborGrid3D` | 组件系统版 |
 | `NS/NS_WhatsNeighborGrid.dfs` | `NS/NS_WhatsNeighborGrid` | 概念演示版（Leader 跟随） |
 
-## 脚本（/Game/NeighborGrid3D/NS/Scripts/，6 份 .dfm）
+## 脚本（4 份 .dfm 在 /Game/NeighborGrid3D/NS/Scripts/；2 份已上移共享目录）
 
 原为导出器抽取的独立脚本资产，`.dfs` 按路径引用。**2026-10 起逐个文本化**（schema → .dfm → build → 签名等价验证），
 随后做过一轮**模块合并**（以 `NS_NeighborGrid3D_Out` 的算法为准）。
+**2026-10-10 拆层**：纯网格基础设施 `InitializeGrid` / `FillGridModule` 上移至
+`DFX/Shared/NeighborGrid/Scripts/`（引擎路径 `/Game/Shared/NeighborGrid/Scripts/`，更名 `NeighborGrid_*`，
+去掉 `NS_NeighborGrid3D_` 前缀），供 Boids 等外部效果按路径复用，不再反向依赖演示目录；
+四个系统的调用点已全部改指新路径。`QueryGrid` / `UpdateHit` 属碰撞演示域逻辑，留在本目录。
 
 ### 2026-10 模块合并
 
@@ -71,8 +76,8 @@
 
 | 共享 `.dfm` | 取代 | 使用者 |
 | --- | --- | --- |
-| `NS_NeighborGrid3D_InitializeGrid` | Out/Show/FX_Syst 三份克隆（Body 逐字节相同） | 全部 4 系统 |
-| `NS_NeighborGrid3D_FillGridModule` | Out/Show/FX_Syst 三份克隆（Body 逐字节相同） | 全部 4 系统 |
+| `NeighborGrid_InitializeGrid`（现位于 `Shared/NeighborGrid/Scripts/`） | Out/Show/FX_Syst 三份克隆（Body 逐字节相同） | 全部 4 系统 |
+| `NeighborGrid_FillGridModule`（现位于 `Shared/NeighborGrid/Scripts/`） | Out/Show/FX_Syst 三份克隆（Body 逐字节相同） | 全部 4 系统 |
 | `NS_NeighborGrid3D_UpdateHit` | Out/Show 两份（内容 = Out 版自读形态；基础版的 `In_Hit` 输入形态与之数学等价，一并退役） | 基础版 / Out / Show |
 | `NS_NeighborGrid3D_QueryGrid` | Out/Show 两份（内容 = Out 版 PBD 算法） | 基础版 / Out / Show |
 | `FX_Syst_NeighborGrid3D_QueryGrid` | —（保留） | FX_Syst |
@@ -89,18 +94,18 @@
 - 被取代的 10 份 `.dfm` 源文件已删除；Content 里对应脚本资产成为孤儿（构建产物本就不入库），可在编辑器中清理。
 - 跨树同步：`DFX/Boids/README.md` 的复用引用已改为共享规范路径。
 
-### 现存 6 份
+### 现存 6 份（本目录 4 份 + Shared 2 份）
 
 | 状态 | 脚本 | 说明 |
 | --- | --- | --- |
-| ✅ 共享 InitializeGrid | `NS_NeighborGrid3D_InitializeGrid` | SystemSpawn `SetNumCells`，全部 4 系统共用 |
-| ✅ 共享 FillGridModule | `NS_NeighborGrid3D_FillGridModule` | Stage FillGrid，全部 4 系统共用 |
+| ✅ 共享 InitializeGrid | `Shared/NeighborGrid/Scripts/NeighborGrid_InitializeGrid` | SystemSpawn `SetNumCells`，全部 4 系统共用（2026-10-10 上移） |
+| ✅ 共享 FillGridModule | `Shared/NeighborGrid/Scripts/NeighborGrid_FillGridModule` | Stage FillGrid，全部 4 系统共用（2026-10-10 上移） |
 | ✅ 共享 UpdateHit | `NS_NeighborGrid3D_UpdateHit` | 碰撞闪光（Out 自读形态），基础版/Out/Show 共用 |
 | ✅ 共享 QueryGrid | `NS_NeighborGrid3D_QueryGrid` | 碰撞分离 + Hit + PBD 速度重建（Out 算法），基础版/Out/Show 共用 |
 | ✅ FX_Syst 专属 QueryGrid | `FX_Syst_NeighborGrid3D_QueryGrid` | 简化版：阈值 = 半径×2，只写 Position |
 | ✅ DynamicInput | `NS_WhatsNeighborGrid_IntByTIme` | Leader 轮换索引 |
 
-`.dfm` 在 `NS/Scripts/`，`Name=` 与资产路径一致，构建即接管。矩阵输入统一拆成 `W2URow0..3` 绕过 DFX4021。
+`.dfm` 在 `NS/Scripts/`（上移的 2 份在 `../Shared/NeighborGrid/Scripts/`），`Name=` 与资产路径一致，构建即接管。矩阵输入统一拆成 `W2URow0..3` 绕过 DFX4021。
 ⚠️ 遗留差异（与合并无关）：进网格前的 `Transform Position(Simulation→World)` 未还原（当前 world-space 下恒等）。
 🚫 输出引脚边界（3）：`Whats_GetLeaderPositionByID/ByIndex`、`Whats_SetLeaderParticle` —— 返回值/输出引脚是它们的全部意义；
 `.dfm` 无 Outputs 节（DFX2017），DynamicInput 仅单表达式（DFX3037）。
@@ -153,11 +158,13 @@
 这三个是**图模块**（多节点连线 + 多个 CustomHLSL 片段），DreamFXLang 的 `.dfm`
 是一体化黑盒形态，无法忠实转写图模块；强行改写等于用未验证的新逻辑替换手工图。
 2026-10 复核确认另有硬边界：`Grid3D_CreateUnitToWorldTransform`/`SetResolution` 有**输出引脚**（语言无 Outputs 节），
-`NM_InitializeDebugCells` 有 **NiagaraMatrix 输入**（DFX4021）——三类边界与脚本同款，保留为资产、由文本引用管理：
+`NM_InitializeDebugCells` 有 **NiagaraMatrix 输入**（DFX4021）——三类边界与脚本同款，保留为资产、由文本引用管理。
+其中 `Grid3D_CreateUnitToWorldTransform` 属通用网格基础设施，已于 2026-10-10 在编辑器内迁至
+`/Game/Shared/NeighborGrid/NM/`（迁后旧路径仅余 redirector，fixup 引用后删除）；另两个仍是演示域资产，留在本目录：
 
 | 资产 | 在 .dfs 中的调用签名 | 内部结构 |
 | --- | --- | --- |
-| `NM/Grid3D_CreateUnitToWorldTransform` | `(CameraFacing, Offset, Rotation, WorldGridExtents)` → 输出 `UnitToWorld` / `WorldToUnit` | 20 个 CustomHLSL 节点 + 图连线，组合平移/旋转/缩放矩阵 |
+| `Shared/NM/Grid3D_CreateUnitToWorldTransform`（2026-10-10 迁入 `/Game/Shared/NeighborGrid/NM/`） | `(CameraFacing, Offset, Rotation, WorldGridExtents)` → 输出 `UnitToWorld` / `WorldToUnit` | 20 个 CustomHLSL 节点 + 图连线，组合平移/旋转/缩放矩阵 |
 | `NM/NM_InitializeDebugCells` | `(NeighborGrid3D, UnitToWorldMatrix, CellMeshScaleOffset, CellSpriteScale)` | 2 个 CustomHLSL（邻居计数查询变体）+ 粒子缩放写入 |
 | `NM/NeighborGrid3D_SetResolution` | `(WorldGridExtents, NumCellsMaxAxis | WorldCellSize)` → `NumCellsX/Y/Z`, `Out_WorldGridExtents` | 2 个 CustomHLSL（两种分辨率算法，由 SetResolutionMethod 选择） |
 

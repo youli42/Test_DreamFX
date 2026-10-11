@@ -26,7 +26,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D", Root="Game")
 
     SystemSpawn = {
         DI<NeighborGrid3D> System.MyNeighborGrid3D = "{\"MaxNeighborsPerCell\":24,\"ClearBeforeNonIterationStage\":true,\"NumCells\":{\"x\":3,\"y\":3,\"z\":3},\"CellSize\":1,\"NumCellsMaxAxis\":10,\"SetResolutionMethod\":\"CellSize\",\"WorldBBoxSize\":{\"x\":100,\"y\":100,\"z\":100}}";
-        /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_InitializeGrid(
+        /Game/Shared/NeighborGrid/Scripts/NeighborGrid_InitializeGrid(
             MyNeighborGrid3DIn = System.MyNeighborGrid3D,
             MaxNeighborsPerCell = User.MaxNeighbors,
             NumCellsX = User.CellsX,
@@ -42,7 +42,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D", Root="Game")
             RecalculateDurationEachLoop = false,
             UseLoopDelay = false
         );
-        /Game/NeighborGrid3D/NM/Grid3D_CreateUnitToWorldTransform(
+        /Game/Shared/NeighborGrid/NM/Grid3D_CreateUnitToWorldTransform(
             CameraFacing = false,
             Offset = Engine.Owner.Position,
             Rotation = Engine.Owner.Rotation,
@@ -217,7 +217,7 @@ System(Name="NeighborGrid3D/NS/NS_NeighborGrid3D", Root="Game")
             OverrideMaterials = "[{\"explicitMat\":\"/Script/Engine.Material'/Game/NeighborGrid3D/Material/M_FX_Spheres.M_FX_Spheres'\",\"userParamBinding\":{\"parameter\":{\"varData\":[],\"name\":\"None\",\"typeDefHandle\":{\"registeredTypeIndex\":2}}}}]";
         }
         Stage FillGrid = {
-            /Game/NeighborGrid3D/NS/Scripts/NS_NeighborGrid3D_FillGridModule(
+            /Game/Shared/NeighborGrid/Scripts/NeighborGrid_FillGridModule(
                 NeighborGrid3DBase = System.MyNeighborGrid3D,
                 W2URow0 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[0] },
                 W2URow1 = hlsl { System.Grid3D_CreateUnitToWorldTransform.WorldToUnit[1] },
