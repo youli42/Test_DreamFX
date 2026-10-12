@@ -19,26 +19,41 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
     }
 
     Properties = {
-        // ---- 邻域网格 ----
-        int CellsX = 40 [ Description="网格 X 轴单元数；硬约束: CellsX ≤ GridSize.x / PerceptionRadius" ];
-        int CellsY = 40 [ Description="网格 Y 轴单元数；硬约束: CellsY ≤ GridSize.y / PerceptionRadius" ];
-        int CellsZ = 40 [ Description="网格 Z 轴单元数；硬约束: CellsZ ≤ GridSize.z / PerceptionRadius" ];
-        Vector GridSize = (4000.0, 4000.0, 4000.0) [ Description="网格世界尺寸（cm）；CellSize = GridSize / Cells，必须 ≥ PerceptionRadius" ];
-        int MaxNeighbors = 20 [ Description="每格最多记录邻居数（MaxNeighborsPerCell）" ];
+        // 分组会写入资产的用户参数层级（Details 面板按此分组排序）；参数名是稳定键，勿改名。
+        Group("邻域网格") {
+            int    CellsX       = 20                       [ Description="网格 X 轴单元数；硬约束: CellsX ≤ GridSize.x / PerceptionRadius" ];
+            int    CellsY       = 20                       [ Description="网格 Y 轴单元数；硬约束: CellsY ≤ GridSize.y / PerceptionRadius" ];
+            int    CellsZ       = 20                       [ Description="网格 Z 轴单元数；硬约束: CellsZ ≤ GridSize.z / PerceptionRadius" ];
+            Vector GridSize     = (4000.0, 4000.0, 4000.0) [ Description="网格世界尺寸（cm）；CellSize = GridSize / Cells，必须 ≥ PerceptionRadius" ];
+            int    MaxNeighbors = 20                       [ Description="每格最多记录邻居数（MaxNeighborsPerCell）" ];
+        }
 
-        // ---- 群体 ----
-        int Count = 800 [ Description="boid 数量（一次 burst；用 burst 而非 SpawnRate 以固定规模）" ];
-        float SpawnRadius = 600.0 [ Description="出生球半径（cm）" ];
-        float PerceptionRadius = 90.0 [ Description="感知半径 R（cm）；必须 ≤ GridSize/Cells（默认 100），否则 27 邻格漏邻居" ];
-        float SeparationRadius = 32.0 [ Description="分离半径 Rsep（cm），约 0.35×R" ];
-        float WeightSeparation = 1.6 [ Description="分离权重" ];
-        float WeightAlignment = 1.0 [ Description="对齐权重" ];
-        float WeightCohesion = 0.8 [ Description="聚合权重" ];
-        float MaxSpeed = 350.0 [ Description="最高速度（cm/s），必须 < SolveForcesAndVelocity 的 SpeedLimit(500)" ];
-        float MinSpeed = 120.0 [ Description="最低速度（cm/s）；若起步抖动明显，先设为 0，稳定后再抬" ];
-        float MaxForce = 800.0 [ Description="最大转向加速度（cm/s²）；dt=1/60 时每帧最多 Δv≈13cm/s" ];
-        float BoundaryRadius = 1500.0 [ Description="活动半径（cm）：超出后施加回收力，避免飞出网格后失去邻居" ];
-        float BoundaryForce = 1200.0 [ Description="边界回收力强度（cm/s²）" ];
+        Group("群体") {
+            int   Count       = 800   [ Description="boid 数量（一次 burst；用 burst 而非 SpawnRate 以固定规模）" ];
+            float SpawnRadius = 600.0 [ Description="出生球半径（cm）" ];
+        }
+
+        Group("感知") {
+            float PerceptionRadius = 180.0 [ Description="感知半径 R（cm）；必须 ≤ GridSize/Cells（默认 100），否则 27 邻格漏邻居" ];
+            float SeparationRadius = 60.0 [ Description="分离半径 Rsep（cm），约 0.35×R" ];
+        }
+
+        Group("行为权重") {
+            float WeightSeparation = 1.9 [ Description="分离权重" ];
+            float WeightAlignment  = 0.7 [ Description="对齐权重" ];
+            float WeightCohesion   = 0.5 [ Description="聚合权重" ];
+        }
+
+        Group("运动限制") {
+            float MaxSpeed = 300.0 [ Description="最高速度（cm/s），必须 < SolveForcesAndVelocity 的 SpeedLimit(500)" ];
+            float MinSpeed = 80.0 [ Description="最低速度（cm/s）；若起步抖动明显，先设为 0，稳定后再抬" ];
+            float MaxForce = 800.0 [ Description="最大转向加速度（cm/s²）；dt=1/60 时每帧最多 Δv≈13cm/s" ];
+        }
+
+        Group("边界回收") {
+            float BoundaryRadius = 1500.0 [ Description="活动半径（cm）：超出后施加回收力，避免飞出网格后失去邻居" ];
+            float BoundaryForce  = 1200.0 [ Description="边界回收力强度（cm/s²）" ];
+        }
     }
 
     SystemSpawn = {
