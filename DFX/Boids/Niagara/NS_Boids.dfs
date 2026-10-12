@@ -79,7 +79,10 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 LifeCycleMode = Self,
                 InactiveResponse = Complete,
                 LoopBehavior = Once,
-                LoopDurationMode = Fixed,
+                // LoopDurationMode = Fixed 且不写 LoopDuration 时引擎默认 1.0s：循环结束后发射器 Complete，
+                // GPU 模拟停止调度，永不死亡的粒子被冻在 t=1s（表现为整群静止）。与 NS_WhatsNeighborGrid
+                // 一致，用 Infinite 让这一次 burst 的鸟群永远模拟下去。
+                LoopDurationMode = Infinite,
                 ScalabilityMode = System,
                 UseLoopDelay = false
             );
@@ -134,9 +137,8 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 OverrideSeed = false,
                 UseOwnerScale = false
             );
-            Particles.Velocity.x = RandomRangeFloat(RandomnessMode = SimulationDefaults, Minimum = -80.0, Maximum = 80.0);
-            Particles.Velocity.y = RandomRangeFloat(RandomnessMode = SimulationDefaults, Minimum = -80.0, Maximum = 80.0);
-            Particles.Velocity.z = RandomRangeFloat(RandomnessMode = SimulationDefaults, Minimum = -80.0, Maximum = 80.0);
+            // DFX4022: 新属性首次赋值必须带类型；RandomRangeVector 每粒子各轴独立均匀随机（原逐轴 RandomRangeFloat 语义）
+            Vector Particles.Velocity = RandomRangeVector(Minimum = (-80.0, -80.0, -80.0), Maximum = (80.0, 80.0, 80.0));
         }
 
         ParticleUpdate = {
@@ -151,7 +153,9 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 SpeedLimit = 500.0,
                 LimitAcceleration = false,
                 WritetoIntrinsicProperties = true,
-                DeltaTime = Transient.PhysicsDeltaTime
+                // Transient.PhysicsDeltaTime 在编辑器预览世界为 0（物理场景不 tick），位置积分 v·dt=0，
+                // 鸟群在编辑器视口里完全静止；Engine.DeltaTime 在预览与游戏世界都有效（与本目录 .dfm 的默认一致）。
+                DeltaTime = Engine.DeltaTime
             );
         }
 
