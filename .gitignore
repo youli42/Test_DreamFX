@@ -82,6 +82,7 @@ DFX/DreamFX.code-workspace
 /Content/NeighborGrid3D/NS/*.uasset
 /Content/NeighborGrid3D/NS/Scripts/
 /Content/Samples/Niagara/*.uasset
+/Content/Boids/Niagara/
 # 旧的反编译镜像构建位置（已被原位构建取代，残留不入库）
 /Content/Decompiled/
 
