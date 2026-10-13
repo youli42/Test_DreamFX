@@ -4,12 +4,19 @@
 
 | 位置 | 内容 | 对应引擎路径 |
 | --- | --- | --- |
-| `DFX/Boids/Niagara/` | `.dfs`（Niagara 系统）、`.dfm`（模块）、`.dfe`（发射器）文本源 | 构建到 `/Game/Boids/Niagara/...`（原位） |
+| `DFX/Boids/Niagara/` | `NS_Boids.dfs`（Niagara 系统）文本源 | 构建到 `/Game/Boids/Niagara/NS_Boids`（原位） |
+| `DFX/Boids/Niagara/NM/` | 3 份 `.dfm`（模块）文本源 | 构建到 `/Game/Boids/Niagara/NM/...`（原位） |
+| `Content/Boids/Niagara/NM/` | 上述 `.dfm` 的构建产物（`.uasset`，不入库） | 同上 |
 | `Content/Boids/Maps/` | 关卡。`.umap` 无法由 DFX 文本表达，在编辑器内创建后保存到这里（`.gitignore` 只收 `.uasset`/`.umap`，无需占位文件） | `/Game/Boids/Maps/...` |
 
 ## 命名约定
 
-`Name="Boids/Niagara/<资产名>"`, `Root="Game"` → 原位构建到 `/Game/Boids/Niagara/<资产名>`。
+源文件所在目录镜像资产目录：`Name=` 就是资产路径去掉 `/Game/` 前缀，`Root="Game"` → 原位构建。
+例：`DFX/Boids/Niagara/NM/BoidsQueryGrid.dfm` 的 `Name="Boids/Niagara/NM/BoidsQueryGrid"`
+→ `/Game/Boids/Niagara/NM/BoidsQueryGrid`。
+
+`NM/` 放模块、`Niagara/` 根放系统（与 NeighborGrid3D 的 `NS/` + `NM/` 分层同构）。
+模块与系统分目录后，系统里的调用点必须写成 `/Game/Boids/Niagara/NM/<模块名>(...)`。
 
 ## 计划（Boids 管线，复用 NeighborGrid3D）
 
@@ -19,7 +26,7 @@
   - `Shared/NeighborGrid/Scripts/NeighborGrid_FillGridModule`（原 `NS_NeighborGrid3D_FillGridModule`）→ Stage FillGrid
   - `Shared/NeighborGrid/NM/Grid3D_CreateUnitToWorldTransform`（图模块，编辑器内迁移）→ SystemUpdate
 - **新写**（仅 2 个文本文件）：
-  - `Niagara/BoidsQueryGrid.dfm` — 27 邻格查询 + 分离/对齐/聚合三规则（steering 形式），
+  - `Niagara/NM/BoidsQueryGrid.dfm` — 27 邻格查询 + 分离/对齐/聚合三规则（steering 形式），
     循环骨架与 `NS_NeighborGrid3D_QueryGrid.dfm`（共享规范版，算法以 Out 为准）一致，仅替换循环体；
   - `Niagara/NS_Boids.dfs` — 系统骨架抄 `NS_NeighborGrid3D_Out.dfs`，
     删 CurlNoise/Vortex/PointAttraction/UpdateHit，速度交由三规则驱动。
@@ -33,7 +40,16 @@
 
 ## 构建 / 校验
 
+三个模块按 `/Game/Boids/Niagara/NM/...` 被系统引用，所以先建模块再建系统：
+
 ```bash
-pwsh -File Plugins/DreamFX/.skill/dfx.ps1 verify DFX/Boids/Niagara/NS_Boids.dfs
+for m in BoidsInitializeGrid BoidsFillGrid BoidsQueryGrid; do
+  pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build "DFX/Boids/Niagara/NM/$m.dfm" -Force
+done
 pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build  DFX/Boids/Niagara/NS_Boids.dfs -Force
+pwsh -File Plugins/DreamFX/.skill/dfx.ps1 verify DFX/Boids/Niagara/NS_Boids.dfs
 ```
+
+> 本机 `EngineAssociation`（5.8）未写入注册表，`dfx.ps1` 解析不到引擎，需追加
+> `-Engine '<引擎根>'`（如 `C:\Program Files\Epic Games\UE_5.8`）或先设 `$env:UE_ENGINE_ROOT`；
+> 否则报 `EngineAssociation '5.8' is not registered`。

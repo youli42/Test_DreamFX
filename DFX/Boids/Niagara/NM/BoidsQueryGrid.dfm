@@ -5,8 +5,8 @@
 // 运行语义（重要）: Stage 在 ParticleUpdate 之后执行，SolveForcesAndVelocity 已经做完位置积分，
 //   所以这里**只写 Velocity**，绝不写 Position（否则双重积分）。
 // 只依赖引擎的 NeighborGrid3D / ParticleRead 接口，不引用 NeighborGrid3D 工具箱任何资产。
-// 注意: Name= 指向 /Game/Boids/Niagara/BoidsQueryGrid，构建本文件会生成/接管该资产。
-Module(Name="Boids/Niagara/BoidsQueryGrid", Root="Game")
+// 注意: Name= 指向 /Game/Boids/Niagara/NM/BoidsQueryGrid，构建本文件会生成/接管该资产。
+Module(Name="Boids/Niagara/NM/BoidsQueryGrid", Root="Game")
 {
     Settings = {
         Usage       = ParticleUpdate;

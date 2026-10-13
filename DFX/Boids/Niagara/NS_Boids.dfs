@@ -1,5 +1,5 @@
 // Boids 系统 —— 基于 3D 邻域网格的群体（flocking）动态模拟。自包含：
-//   只使用引擎模块 + 同目录三个 .dfm（BoidsInitializeGrid / BoidsFillGrid / BoidsQueryGrid），
+//   只使用引擎模块 + 同目录 NM/ 下三个 .dfm（BoidsInitializeGrid / BoidsFillGrid / BoidsQueryGrid），
 //   不引用 NeighborGrid3D 工具箱的 .dfs / .dfm / NM 图模块，也不需要
 //   Grid3D_CreateUnitToWorldTransform：世界坐标→单元索引由两个 .dfm 用同一套公式自行换算，
 //   网格中心取 Engine.Owner.Position（网格随 Actor 走，鸟群被回收力拴在网格内）。
@@ -58,7 +58,7 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
 
     SystemSpawn = {
         DI<NeighborGrid3D> System.MyNeighborGrid3D = "{\"MaxNeighborsPerCell\":20,\"ClearBeforeNonIterationStage\":true,\"NumCells\":{\"x\":40,\"y\":40,\"z\":40},\"CellSize\":100,\"NumCellsMaxAxis\":40,\"SetResolutionMethod\":\"CellSize\",\"WorldBBoxSize\":{\"x\":4000,\"y\":4000,\"z\":4000}}";
-        /Game/Boids/Niagara/BoidsInitializeGrid(
+        /Game/Boids/Niagara/NM/BoidsInitializeGrid(
             GridIn = System.MyNeighborGrid3D,
             MaxNeighborsPerCell = User.MaxNeighbors,
             NumCellsX = User.CellsX,
@@ -183,7 +183,7 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
         }
 
         Stage FillGrid = {
-            /Game/Boids/Niagara/BoidsFillGrid(
+            /Game/Boids/Niagara/NM/BoidsFillGrid(
                 GridIn = System.MyNeighborGrid3D,
                 In_GridCenter = Engine.Owner.Position,
                 In_GridSize = User.GridSize
@@ -191,7 +191,7 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
         }
 
         Stage Boids = {
-            /Game/Boids/Niagara/BoidsQueryGrid(
+            /Game/Boids/Niagara/NM/BoidsQueryGrid(
                 GridIn = System.MyNeighborGrid3D,
                 AttributeReader = Emitter.MyAttributeReader,
                 In_GridCenter = Engine.Owner.Position,

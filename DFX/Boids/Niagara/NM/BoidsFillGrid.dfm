@@ -5,8 +5,8 @@
 //       单元索引由本模块自行计算，查询侧（BoidsQueryGrid）用**同一套公式**，两者自洽即可
 //       （±半格的整体偏移不影响 27 邻格覆盖：|Δworld| ≤ CellSize ⇒ |Δindex| ≤ 1）。
 // 网格约定: 网格中心 = In_GridCenter，世界尺寸 = In_GridSize，CellSize = In_GridSize / NumCells。
-// 注意: Name= 指向 /Game/Boids/Niagara/BoidsFillGrid，构建本文件会生成/接管该资产。
-Module(Name="Boids/Niagara/BoidsFillGrid", Root="Game")
+// 注意: Name= 指向 /Game/Boids/Niagara/NM/BoidsFillGrid，构建本文件会生成/接管该资产。
+Module(Name="Boids/Niagara/NM/BoidsFillGrid", Root="Game")
 {
     Settings = {
         Usage       = ParticleUpdate;
