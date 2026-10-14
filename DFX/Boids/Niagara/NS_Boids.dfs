@@ -8,6 +8,10 @@
 //   位置积分由 ParticleUpdate 的 SolveForcesAndVelocity 负责；两个 Stage 都在它之后运行，
 //   所以 Stage 里只写速度，不写位置（避免双重积分）。
 // 自检着色（BoidsQueryGrid 写 Particles.Color）: 青蓝=邻居≥4，黄=1..3，红=0（失联）。
+// 方向显示（MeshRenderer Arrows）: 每只 boid 渲染一个 Niagara 自带箭头网格
+//   /Niagara/DefaultAssets/S_Arrow（指向 +X），FacingMode=Velocity 使网格 +X 对齐 Particles.Velocity。
+//   缩放只沿箭头方向且与速度绑定: Particles.Scale = (|V| × 3, 1, 1)，速度 80~300 → 全长 2.4~9m，粗细原生。
+//   SpriteRenderer Core 保留但 bIsEnabled=false 禁用；渲染器块统一放在发射器末尾（Niagara 的排布习惯）。
 //
 // 本源文件原位构建资产 /Game/Boids/Niagara/NS_Boids。
 System(Name="Boids/Niagara/NS_Boids", Root="Game")
@@ -116,7 +120,7 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 SpriteSizeMode = Uniform,
                 SpriteRotationMode = Unset,
                 SpriteUVMode = Unset,
-                MeshScaleMode = Uniform,
+                MeshScaleMode = Unset,
                 MeshRendererArrayVisibilityMode = Unset,
                 RibbonWidthMode = Unset,
                 RibbonFacingMode = Unset,
@@ -133,9 +137,10 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                     B = 0.00008
                 ),
                 WriteMaterialRandom = true,
-                UniformSpriteSize = 24.0,
-                MeshUniformScale = Particles.Radius
+                UniformSpriteSize = 24.0
             );
+            // 网格缩放不在出生时写死：箭头长度与速度绑定，由 ParticleUpdate 每帧按当前速度写入
+            // Particles.Scale（见下）。InitializeParticle 的 MeshScaleMode 置为 Unset，避免多写一份均匀缩放。
             ShapeLocation(
                 ShapePrimitive = Sphere,
                 ApplyToParticlePosition = Apply,
@@ -172,14 +177,11 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 // 鸟群在编辑器视口里完全静止；Engine.DeltaTime 在预览与游戏世界都有效（与本目录 .dfm 的默认一致）。
                 DeltaTime = Engine.DeltaTime
             );
-        }
-
-        SpriteRenderer Core
-        {
-            Alignment = VelocityAligned;
-            FacingMode = FaceCamera;
-            Bind SpriteSize -> Particles.SpriteSize;
-            Bind Color -> Particles.Color;
+            // 箭头长度与速度绑定，只沿箭头方向拉长: MeshRenderer 默认 ScaleBinding 读 Particles.Scale，
+            // 每帧按当前速度显式写入
+            // Y/Z = 1 保持 S_Arrow 原生粗细（约 4cm），想整体放大调大后两个分量即可。
+            // 用的是本帧解算后的速度（两个 Stage 改写的速度下一帧才反映，差一帧对调试不可感）。
+            Vector Particles.Scale = hlsl { float3(length(Particles.Velocity) * 0.05, 5.0, 5.0) };
         }
 
         Stage FillGrid = {
@@ -208,6 +210,28 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 In_BoundaryRadius = User.BoundaryRadius,
                 In_BoundaryForce = User.BoundaryForce
             );
+        }
+
+        // 渲染器放发射器末尾（与 Niagara 系统的排布一致；声明顺序 = 渲染顺序）。
+        // 自检着色的粒子精灵保留但禁用，方向显示交给箭头网格。
+        SpriteRenderer Core
+        {
+            bIsEnabled = false;
+            Alignment = VelocityAligned;
+            FacingMode = FaceCamera;
+            Bind SpriteSize -> Particles.SpriteSize;
+            Bind Color -> Particles.Color;
+        }
+
+        // 方向指示: Niagara 自带箭头网格 S_Arrow（本地 +X 即箭头指向）。
+        // FacingMode=Velocity 是 ENiagaraMeshFacingMode 的枚举项，把网格 +X 对齐到 Particles.Velocity；
+        // 缩放见 ParticleUpdate 里 Particles.Scale 的每帧赋值（长度与速度绑定，只沿 X 拉长）；颜色沿用自检着色。
+        MeshRenderer Arrows
+        {
+            bIsEnabled = true;
+            Meshes     = ["/Niagara/DefaultAssets/S_Arrow"];
+            FacingMode = Velocity;
+            Bind Color -> Particles.Color;
         }
     }
 }
