@@ -175,9 +175,10 @@ Module(Name="Boids/Niagara/NM/BoidsQueryGrid", Root="Game")
         // ==== 写回 ====
         Particles.Velocity = NewVelocity;
 
-        // 自检用着色：邻居 ≥4 = 青蓝（在群里），1..3 = 黄（边缘），0 = 红（失联，通常是出格或网格覆盖不足）
+        // 自检用着色（debug 专用，直接用 RGB 纯色）：在群里 = 绿 G，边缘 = 蓝 B，失联 = 红 R
+        //（通常是出格或网格覆盖不足）。阈值只写在下面的代码里，注释不写具体数字，避免与代码漂移。
         Particles.Color = NeighborCount >= 4
-            ? float4(0.20, 0.65, 1.00, 1.0)
-            : (NeighborCount > 0 ? float4(1.00, 0.85, 0.20, 1.0) : float4(1.00, 0.22, 0.10, 1.0));
+            ? float4(0.0, 1.0, 0.0, 1.0)
+            : (NeighborCount > 0 ? float4(0.0, 0.0, 1.0, 1.0) : float4(1.0, 0.0, 0.0, 1.0));
     }
 }

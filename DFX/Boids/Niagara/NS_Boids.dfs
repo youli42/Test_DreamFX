@@ -7,10 +7,15 @@
 // 行为: 分离 / 对齐 / 聚合三规则 → Reynolds steer → 写 Particles.Velocity。
 //   位置积分由 ParticleUpdate 的 SolveForcesAndVelocity 负责；两个 Stage 都在它之后运行，
 //   所以 Stage 里只写速度，不写位置（避免双重积分）。
-// 自检着色（BoidsQueryGrid 写 Particles.Color）: 青蓝=邻居≥4，黄=1..3，红=0（失联）。
+// 自检着色（BoidsQueryGrid 写 Particles.Color，debug 用 RGB 纯色）: 在群里=绿 G，边缘=蓝 B，失联=红 R；
+//   阈值只写在 BoidsQueryGrid.dfm 的着色条件里，注释不写具体数字，避免与代码漂移。
 // 方向显示（MeshRenderer Arrows）: 每只 boid 渲染一个 Niagara 自带箭头网格
 //   /Niagara/DefaultAssets/S_Arrow（指向 +X），FacingMode=Velocity 使网格 +X 对齐 Particles.Velocity。
-//   缩放只沿箭头方向且与速度绑定: Particles.Scale = (|V| × 3, 1, 1)，速度 80~300 → 全长 2.4~9m，粗细原生。
+//   缩放只沿箭头方向且与速度绑定: 每帧按当前速度写 Particles.Scale（长度系数与横向粗细见 ParticleUpdate 的赋值）。
+//   颜色(#1): S_Arrow 自带的 M_Gnomon 是轴指示器材质，颜色以网格自带顶点色（红）为准，粒子色压不过它；
+//   箭头材质由 OverrideMaterials 整槽替换为 DShader/Boids/Material/M_BoidsArrow.dss 生成的
+//   /Game/Boids/Material/M_BoidsArrow（Unlit，只读 Particle Color——渲染器 ColorBinding 传入的
+//   每实例颜色流，而非 Vertex Color 读的网格顶点色），自检着色得以直接显示。
 //   SpriteRenderer Core 保留但 bIsEnabled=false 禁用；渲染器块统一放在发射器末尾（Niagara 的排布习惯）。
 //
 // 本源文件原位构建资产 /Game/Boids/Niagara/NS_Boids。
@@ -125,8 +130,8 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 RibbonWidthMode = Unset,
                 RibbonFacingMode = Unset,
                 RibbonTwistMode = Unset,
-                ColorMinimum = (0.2, 0.65, 1.0, 1.0),
-                ColorMaximum = (0.2, 0.65, 1.0, 1.0),
+                ColorMinimum = (0.0, 1.0, 0.0, 1.0),
+                ColorMaximum = (0.0, 1.0, 0.0, 1.0),
                 Lifetime = 1.0,
                 UsePositionOffset = false,
                 Mass = Multiply_Float(
@@ -178,10 +183,10 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 DeltaTime = Engine.DeltaTime
             );
             // 箭头长度与速度绑定，只沿箭头方向拉长: MeshRenderer 默认 ScaleBinding 读 Particles.Scale，
-            // 每帧按当前速度显式写入
-            // Y/Z = 1 保持 S_Arrow 原生粗细（约 4cm），想整体放大调大后两个分量即可。
+            // 每帧按当前速度显式写入。
+            // X 是长度系数、Y/Z 是横向粗细，想调整就改这三个分量（数值以表达式为准，注释不写具体数字）。
             // 用的是本帧解算后的速度（两个 Stage 改写的速度下一帧才反映，差一帧对调试不可感）。
-            Vector Particles.Scale = hlsl { float3(length(Particles.Velocity) * 0.05, 5.0, 5.0) };
+            Vector Particles.Scale = hlsl { float3(length(Particles.Velocity) * 0.03, 8.0, 8.0) };
         }
 
         Stage FillGrid = {
@@ -225,13 +230,18 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
 
         // 方向指示: Niagara 自带箭头网格 S_Arrow（本地 +X 即箭头指向）。
         // FacingMode=Velocity 是 ENiagaraMeshFacingMode 的枚举项，把网格 +X 对齐到 Particles.Velocity；
-        // 缩放见 ParticleUpdate 里 Particles.Scale 的每帧赋值（长度与速度绑定，只沿 X 拉长）；颜色沿用自检着色。
+        // 缩放见 ParticleUpdate 里 Particles.Scale 的每帧赋值（长度与速度绑定，只沿 X 拉长）。
+        // 颜色(#1): 箭头自带材质 M_Gnomon 只认网格顶点色（红），Bind Color 传的粒子色对它无效；
+        //   用 M_BoidsArrow（DShader 文本源构建）整槽替换，该材质读 Particle Color 节点取本渲染器
+        //   的每实例颜色（见下 Bind Color）。bOverrideMaterials 写在 OverrideMaterials 之前。
         MeshRenderer Arrows
         {
             bIsEnabled = true;
             Meshes     = ["/Niagara/DefaultAssets/S_Arrow"];
             FacingMode = Velocity;
             Bind Color -> Particles.Color;
+            bOverrideMaterials = true;
+            OverrideMaterials  = ["/Game/Boids/Material/M_BoidsArrow"];
         }
     }
 }

@@ -1,0 +1,24 @@
+// M_BoidsArrow.dss —— Boids 箭头网格(/Niagara/DefaultAssets/S_Arrow)的可染色替换材质。
+//
+// 问题(#1): S_Arrow 自带材质 M_Gnomon 是轴指示器材质,颜色以网格自带顶点色(红)为准,
+//   Niagara MeshRenderer 传入的每实例粒子色压不过它,箭头永远是红的。
+//   引擎里 Vertex Color 节点读的是网格顶点色(NiagaraMeshVertexFactory 的
+//   VertexFetch_ColorComponentsBuffer),Particle Color 节点读的才是渲染器 ColorBinding
+//   (Particles.Color)写入的每实例颜色流 —— 两者是独立的流,本材质只取后者。
+//
+// 用法: 在 NS_Boids.dfs 的 MeshRenderer Arrows 里
+//   bOverrideMaterials = true;
+//   OverrideMaterials  = ["/Game/Boids/Material/M_BoidsArrow"];
+//
+// 着色: Unlit + 自发光,让自检着色(BoidsQueryGrid 写 Particles.Color,
+//   debug 用 RGB 纯色: 在群里=绿 G,边缘=蓝 B,失联=红 R)不受场景光照影响,一眼可辨。
+
+#pragma material(Domain = Surface, ShadingModel = Unlit, BlendMode = Opaque)
+
+/// @group Tint   @sort 10   @desc 乘在粒子色上的整体色调;默认白色 = 自检着色原样透传
+uniform float3 Tint = float3(1.0, 1.0, 1.0);
+
+export void M_BoidsArrow(inout material m)
+{
+    m.EmissiveColor = UE.ParticleColor().rgb * Tint;
+}
