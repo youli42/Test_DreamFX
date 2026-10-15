@@ -1,0 +1,93 @@
+// Boids 调试网格发射器 —— 可复用（DreamFXLang 文本 .dfe）。
+// 每个网格单元一个立方体粒子：被占用的格子接近满格尺寸，空格缩成小点且很暗。
+// 颜色：绿 = 正常占用；红 = 该格**超过每格登记上限**（有粒子没进网格，正在丢邻居）；暗蓝 = 空格。
+// 另外每格在中心用文字打出**该格内的粒子数量**（尝试登记数，数量 0 的格子不显示文字）。
+// 用途: 判断网格覆盖是否够、哪些格子真的有粒子、每格堆了几个、哪些格子已经溢出。
+//
+// .dfe 自身不生成任何资产（DFX5097）；在系统里用 from 拉进来：
+//   Emitter DebugGrid from "./NE/BoidsDebugGrid" { }
+//
+// 宿主系统必须满足（前两条由 DFX3043 在 from 行上检查）：
+//   1) 声明 User.CellsX / User.CellsY / User.CellsZ（本发射器 burst 数量 = 三者乘积）
+//      与 User.GridSize（网格世界尺寸，喂给 NM/BoidsDebugGrid.dfm 换算单元中心）；
+//   2) 声明 DI<NeighborGrid3D> System.MyNeighborGrid3D，且每帧有人往网格里登记粒子；
+//   3) 本发射器声明在**填充网格的那个发射器之后**：网格读取要拿到本帧内容。
+//
+// 外观（占用/空格尺寸、颜色）在 /Game/Boids/Niagara/NM/BoidsDebugGrid 模块里；
+// Settings / 栈 / 渲染器可在宿主的 from 块里覆盖（Settings 按 key 合并，栈与渲染器是整块替换）。
+Emitter(Name="Boids/Niagara/NE/BoidsDebugGrid", Root="Game")
+{
+    Settings = {
+        SimTarget = GPU;
+        CalculateBoundsMode = Fixed;
+        // 覆盖整个活动网格（默认按半宽 2000 的网格留余量）。不写 FixedBounds 会按定点边界剔除，
+        // 8000 个格子在视口里整体消失（NE_DebugGrid 当初踩过这个坑）；换网格尺寸时在宿主覆盖本项。
+        FixedBounds = box(-2500.0, -2500.0, -2500.0, 2500.0, 2500.0, 2500.0);
+        QualityLevelMask = 31;
+    }
+
+    EmitterUpdate = {
+        EmitterState(
+            LifeCycleMode = Self,
+            InactiveResponse = Complete,
+            LoopBehavior = Once,
+            // Fixed 且不写 LoopDuration 会在引擎默认时长后 Complete，GPU 模拟停止调度，
+            // 占用着色就冻在第一帧（网格刚被清空的样子）
+            LoopDurationMode = Infinite,
+            ScalabilityMode = System,
+            UseLoopDelay = false
+        );
+        // 一次 burst 铺满所有格子：CellsX × CellsY × CellsZ
+        SpawnBurst_Instantaneous(
+            SpawnCount = Multiply_Int(A = Multiply_Int(A = User.CellsX, B = User.CellsY), B = User.CellsZ),
+            UseSpawnProbability = false,
+            UseLoopCountLimit = false
+        );
+    }
+
+    ParticleUpdate = {
+        // 不写 InitializeParticle、并把击杀关掉：Lifetime 为 0 的粒子在 Niagara 里不会自行消亡，
+        // 这批格子标记就永久存活（与 NE_DebugGrid.dfe 的做法一致）
+        ParticleState@1.1(
+            KillParticlesWhenLifetimeHasElapsed = false,
+            LoopParticlesLifetime = false,
+            LetInfinitelyLivedParticlesDieWhenEmitterDeactivates = false
+        );
+        /Game/Boids/Niagara/NM/BoidsDebugGrid(
+            GridIn = System.MyNeighborGrid3D,
+            In_GridCenter = Engine.Owner.Position,
+            In_GridSize = User.GridSize,
+            In_NumCellsX = User.CellsX,
+            In_NumCellsY = User.CellsY,
+            In_NumCellsZ = User.CellsZ,
+            // 显式点名（而不是吃模块默认值）：DFX8018 构建安全门只认文本点过名的输入，
+            // 否则该常量与资产里的值一旦不同就会被判定成"源码无法表达的漂移"而拒绝保存。
+            In_SpriteScale = 0.6
+        );
+    }
+
+    // 1cm 立方体 × 粒子缩放（模块按单元尺寸写 Particles.Scale，渲染器默认 ScaleBinding 读它）。
+    // 材质用 NeighborGrid3D 演示目录里现成的调试材质（半透明、空格更淡）；
+    // 想换成纯色/不透明材质，在宿主的 from 块里整块替换渲染器即可。
+    MeshRenderer Cells
+    {
+        bIsEnabled = true;
+        Meshes     = ["/Engine/EngineMeshes/s_cube_1cm"];
+        Bind Color -> Particles.Color;
+        bOverrideMaterials = true;
+        OverrideMaterials  = ["/Game/NeighborGrid3D/Material/M_Debug_Cell"];
+    }
+
+    // 每格粒子数以文字显示，**数字颜色随状态变化**（绿=正常 / 红=超过每格登记上限）：
+    // 材质 /Game/Boids/Material/M_BoidsCellCount（DShader/Boids/Material/M_BoidsCellCount.dss 文本源）
+    // 取粒子色当自发光、用字形遮罩当透明度，Dynamic Parameter 的 .x = 是否显示、.y = 打印的数字，
+    // 都由模块写进 Particles.DynamicMaterialParameter；数量为 0 的格子 .x = 0，不显示文字。
+    // In_SpriteScale = 0 可以只关掉数字、保留网格。
+    SpriteRenderer Counts
+    {
+        Material     = "/Game/Boids/Material/M_BoidsCellCount";
+        FacingMode   = FaceCamera;
+        Bind SpriteSize -> Particles.SpriteSize;
+        Bind Color      -> Particles.Color;
+    }
+}

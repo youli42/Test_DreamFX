@@ -1,0 +1,37 @@
+// M_BoidsCellCount.dss —— Boids 调试网格的“每格数量”文字材质。
+//
+// 为什么不用 NeighborGrid3D 演示的 M_Debug_CellText：
+//   那个材质的数字颜色写死在图里（If 的两个分支都是常数 (1,0,0,0)），所以数字恒红，
+//   与格子是否溢出无关；想让数字随状态变色只能在材质层面做，模块改不动它。
+//
+// 本材质的做法（与模块的约定）：
+//   Dynamic Parameter  R = 是否显示（模块写 Particles.DynamicMaterialParameter.x）
+//                      G = 要打印的数量（模块写 .y）
+//   字形   复用引擎材质函数 DebugScalarValues（Number = G，最多 2 位；UVs / 文字区域留空，
+//          用函数自身的默认，与演示材质一致）
+//   颜色   直接取粒子色（模块已按状态写好：正常=绿、超过每格登记上限=红、空格=暗）
+//   透明度 字形遮罩 × 是否显示 —— 空格不显示数字
+//
+// 用法：NS_Boids 的 debug 发射器里
+//   SpriteRenderer Counts { Material = "/Game/Boids/Material/M_BoidsCellCount"; }
+
+#pragma material(Domain = Surface, ShadingModel = Unlit, BlendMode = Translucent)
+
+/// @group Count   @sort 10   @slider 0 4   @desc 数字自发光增益；默认 2 比粒子色亮一档（本材质没有演示材质那层眼适应反算），过高会被曝光裁成白
+uniform float Gain = 2.0;
+
+// 引擎自带的“按数字出字形”材质函数：Number/MaximumNumberOfDigits 必给；
+// 后面两个给了声明默认值 —— 调用点不传就保持未连线，函数自身默认生效（与演示材质一致）
+/// @asset /Engine/Functions/Engine_MaterialFunctions02/Utility/DebugScalarValues
+extern float DebugScalarValues(float Number, float MaximumNumberOfDigits, float2 UVs = float2(0.0, 0.0), float4 DebugTextLocation = float4(0.0, 0.0, 0.0, 0.0));
+
+export void M_BoidsCellCount(inout material m)
+{
+    // Dynamic Parameter 节点：按成员名选 RGBA 输出（.dss 用成员形式选输出，参数形式的 Output= 是 1.x 写法）
+    float4 Dyn = UE.Expression(Class = "DynamicParameter").RGBA;
+
+    float Glyph = DebugScalarValues(Dyn.y, 2.0);
+
+    m.EmissiveColor = UE.ParticleColor().rgb * Gain;
+    m.Opacity       = Glyph * saturate(Dyn.x);
+}

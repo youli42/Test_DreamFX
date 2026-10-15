@@ -1,7 +1,7 @@
 // Boids 系统 —— 基于 3D 邻域网格的群体（flocking）动态模拟。自包含：
-//   只使用引擎模块 + 同目录 NM/ 下三个 .dfm（BoidsInitializeGrid / BoidsFillGrid / BoidsQueryGrid），
-//   不引用 NeighborGrid3D 工具箱的 .dfs / .dfm / NM 图模块，也不需要
-//   Grid3D_CreateUnitToWorldTransform：世界坐标→单元索引由两个 .dfm 用同一套公式自行换算，
+//   只使用引擎模块 + 同目录 NM/ 下的 .dfm（BoidsInitializeGrid / BoidsFillGrid / BoidsQueryGrid /
+//   BoidsDebugGrid），不引用 NeighborGrid3D 工具箱的 .dfs / .dfm / NM 图模块，也不需要
+//   Grid3D_CreateUnitToWorldTransform：世界坐标→单元索引由各 .dfm 用同一套公式自行换算，
 //   网格中心取 Engine.Owner.Position（网格随 Actor 走，鸟群被回收力拴在网格内）。
 //
 // 行为: 分离 / 对齐 / 聚合三规则 → Reynolds steer → 写 Particles.Velocity。
@@ -13,6 +13,11 @@
 //   /Niagara/DefaultAssets/S_Arrow（指向 +X），FacingMode=Velocity 使网格 +X 对齐 Particles.Velocity。
 //   缩放只沿箭头方向且与速度绑定: 每帧按当前速度写 Particles.Scale（长度系数与横向粗细见 ParticleUpdate 的赋值）。
 //   颜色(#1): S_Arrow 自带的 M_Gnomon 是轴指示器材质，颜色以网格自带顶点色（红）为准，粒子色压不过它；
+// 调试网格（Emitter DebugGrid from "../NE/BoidsDebugGrid"）: 每格一个立方体粒子，被占用的格子接近满格
+//   尺寸、可见度高，空格缩成小点且很暗（用 M_Debug_Cell 时正常曝光下几乎看不见）；用来判断网格覆盖是否够、
+//   哪些格子真的有 boid。
+//   它只读网格、不参与模拟，删掉该 from 块即关闭；声明位置必须在 Boids 发射器之后（见该块的注释）。
+//   发射器文本源在 NE/BoidsDebugGrid.dfe（.dfe 不生成资产，DFX5097），外观在 NM/BoidsDebugGrid.dfm。
 //   箭头材质由 OverrideMaterials 整槽替换为 DShader/Boids/Material/M_BoidsArrow.dss 生成的
 //   /Game/Boids/Material/M_BoidsArrow（Unlit，只读 Particle Color——渲染器 ColorBinding 传入的
 //   每实例颜色流，而非 Vertex Color 读的网格顶点色），自检着色得以直接显示。
@@ -245,3 +250,11 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
         }
     }
 }
+
+    // 调试网格：可复用发射器，文本源在 ../NE/BoidsDebugGrid.dfe（.dfe 自身不生成资产，DFX5097）。
+    // 关掉它 = 删掉本块；它对 Boids 模拟没有任何影响（只读网格，不写网格，也不写别人的粒子）。
+    // 必须声明在 Boids 发射器**之后**：Stage FillGrid 先跑，本发射器再按本帧网格占用刷新。
+    // 需要覆盖调试外观时写在下面的块里：Settings 按 key 合并，栈与渲染器是整块替换。
+    Emitter DebugGrid from "./NE/BoidsDebugGrid"
+    {
+    }
