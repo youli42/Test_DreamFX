@@ -2,7 +2,6 @@
 name: dream-fx-diagnose
 description: Resolve a DreamFX compile error or warning — look the DFXnnnn code up, explain the cause, and fix the source. Use when a .dfs / .dfe / .dfm fails to build, when a LogDreamFX error needs explaining, or when a DreamFX-generated Niagara effect comes out wrong.
 ---
-<!-- Published from Plugins/DreamFX/.skill by sync-skills.ps1. Edit the source, not this copy. -->
 
 # dream-fx-diagnose `<message>` | `<file>`
 
@@ -13,7 +12,7 @@ identifies the failure mode; the position identifies the token. Start from the c
 pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build <file> -Force
 ```
 
-**Look the code up first: [`Docs/diagnostics/`](../../../Plugins/DreamFX/Docs/diagnostics/README.md) has every one of
+**Look the code up first: [`Docs/diagnostics/`](../../Docs/diagnostics/README.md) has every one of
 them with its cause and fix.** The index table maps code to page; the page carries the message
 template, where it is raised from, and the prose. This skill covers the handful that come up most and
 the reasoning behind them — the reference covers all 117, and is regenerated from the source by
@@ -149,8 +148,8 @@ The build gate proves the asset generates, not that the effect is right. Two thi
 
 ## See also
 
-- [`Docs/diagnostics/`](../../../Plugins/DreamFX/Docs/diagnostics/README.md) — every code, cause and fix
-- [`Docs/language/`](../../../Plugins/DreamFX/Docs/language/README.md) — what the syntax the diagnostic is complaining
+- [`Docs/diagnostics/`](../../Docs/diagnostics/README.md) — every code, cause and fix
+- [`Docs/language/`](../../Docs/language/README.md) — what the syntax the diagnostic is complaining
   about is supposed to look like
 - [`dream-fx-verify`](../dream-fx-verify/SKILL.md) — the build harness and its flags
 - [`dream-fx-create`](../dream-fx-create/SKILL.md) — writing a new effect from scratch

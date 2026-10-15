@@ -2,7 +2,6 @@
 name: dream-fx-decompile
 description: Export an existing Unreal Niagara system back into DreamFXLang source headlessly, so a hand-built effect can be migrated to a text source file. Use when asked to decompile, export, reverse, convert, or migrate a Niagara system / NS asset to .dfs, or to report how much of a project's VFX DreamFX can represent.
 ---
-<!-- Published from Plugins/DreamFX/.skill by sync-skills.ps1. Edit the source, not this copy. -->
 
 # dream-fx-decompile `<asset path>`
 

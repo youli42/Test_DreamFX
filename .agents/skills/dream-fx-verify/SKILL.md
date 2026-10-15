@@ -2,7 +2,6 @@
 name: dream-fx-verify
 description: Build or check DreamFXLang sources headlessly — one .dfs file or the whole DFX tree — turning text into Niagara system assets without opening the Unreal editor. Use when asked to verify, validate, build, compile, test, or CI-gate .dfs / .dfe / .dfm / DreamFX sources, or to check whether a Niagara effect still generates from its source.
 ---
-<!-- Published from Plugins/DreamFX/.skill by sync-skills.ps1. Edit the source, not this copy. -->
 
 # dream-fx-verify `<file>` | `-All`
 
@@ -54,7 +53,7 @@ built. Batch edits rather than looping per file.
 Close the editor before a build. Both processes write the same packages otherwise, and the one that
 saves second wins silently; the run warns when it sees an editor but cannot tell which project that
 editor has open. Large sources are slow for a structural reason, not a fixable one —
-[Docs/performance-2026-08-08.md](../../../Plugins/DreamFX/Docs/performance-2026-08-08.md) has the measurements.
+[Docs/performance-2026-08-08.md](../../Docs/performance-2026-08-08.md) has the measurements.
 
 | Argument | Effect |
 | :-- | :-- |
