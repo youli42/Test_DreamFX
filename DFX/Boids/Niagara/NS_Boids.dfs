@@ -7,17 +7,21 @@
 // 行为: 分离 / 对齐 / 聚合三规则 → Reynolds steer → 写 Particles.Velocity。
 //   位置积分由 ParticleUpdate 的 SolveForcesAndVelocity 负责；两个 Stage 都在它之后运行，
 //   所以 Stage 里只写速度，不写位置（避免双重积分）。
+// 边界: 软边界回收——从 ShellStart×BoundaryRadius 起连续施加径向压力，压力同时收窄期望方向、
+//   压低速度上限、放开速度下限，并作为第 4 条 steer 规则参与 MaxForce 预算（详见 BoidsQueryGrid.dfm）。
+//   不要退回"硬阈值 + 归一化之后的事后冲量"：那会让 r = BoundaryRadius 变成零力面（吸引子），
+//   群体贴壳切向环流、中心区域空置。
 // 自检着色（BoidsQueryGrid 写 Particles.Color，debug 用 RGB 纯色）: 在群里=绿 G，边缘=蓝 B，失联=红 R；
 //   阈值只写在 BoidsQueryGrid.dfm 的着色条件里，注释不写具体数字，避免与代码漂移。
-// 方向显示（MeshRenderer Arrows）: 每只 boid 渲染一个 Niagara 自带箭头网格
-//   /Niagara/DefaultAssets/S_Arrow（指向 +X），FacingMode=Velocity 使网格 +X 对齐 Particles.Velocity。
-//   缩放只沿箭头方向且与速度绑定: 每帧按当前速度写 Particles.Scale（长度系数与横向粗细见 ParticleUpdate 的赋值）。
-//   颜色(#1): S_Arrow 自带的 M_Gnomon 是轴指示器材质，颜色以网格自带顶点色（红）为准，粒子色压不过它；
 // 调试网格（Emitter DebugGrid from "../NE/BoidsDebugGrid"）: 每格一个立方体粒子，被占用的格子接近满格
 //   尺寸、可见度高，空格缩成小点且很暗（用 M_Debug_Cell 时正常曝光下几乎看不见）；用来判断网格覆盖是否够、
 //   哪些格子真的有 boid。
 //   它只读网格、不参与模拟，删掉该 from 块即关闭；声明位置必须在 Boids 发射器之后（见该块的注释）。
 //   发射器文本源在 NE/BoidsDebugGrid.dfe（.dfe 不生成资产，DFX5097），外观在 NM/BoidsDebugGrid.dfm。
+// 方向显示（MeshRenderer Arrows）: 每只 boid 渲染一个 Niagara 自带箭头网格
+//   /Niagara/DefaultAssets/S_Arrow（指向 +X），FacingMode=Velocity 使网格 +X 对齐 Particles.Velocity。
+//   缩放只沿箭头方向且与速度绑定: 每帧按当前速度写 Particles.Scale（长度系数与横向粗细见 ParticleUpdate 的赋值）。
+//   颜色(#1): S_Arrow 自带的 M_Gnomon 是轴指示器材质，颜色以网格自带顶点色（红）为准，粒子色压不过它；
 //   箭头材质由 OverrideMaterials 整槽替换为 DShader/Boids/Material/M_BoidsArrow.dss 生成的
 //   /Game/Boids/Material/M_BoidsArrow（Unlit，只读 Particle Color——渲染器 ColorBinding 传入的
 //   每实例颜色流，而非 Vertex Color 读的网格顶点色），自检着色得以直接显示。
@@ -65,8 +69,11 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
         }
 
         Group("边界回收") {
-            float BoundaryRadius = 1500.0 [ Description="活动半径（cm）：超出后施加回收力，避免飞出网格后失去邻居" ];
-            float BoundaryForce  = 1200.0 [ Description="边界回收力强度（cm/s²）" ];
+            float BoundaryRadius    = 1500.0 [ Description="活动半径（cm）：回收从 ShellStart×该值 起连续生效，到该值处压力满格；避免飞出网格后失去邻居" ];
+            float BoundaryForce     = 1200.0 [ Description="边界回收加速度（cm/s²）：作为第 4 条 steer 规则与三规则共用 MaxForce 预算；大于 MaxForce 时越界即独占转向预算" ];
+            float ShellStart        = 0.75   [ Description="软边界起点（×BoundaryRadius）：越小则回收越早、群体被压得越紧" ];
+            float ShellSpeedDamping = 0.6    [ Description="壳上速度上限衰减系数：压力越大速度上限收缩越多（放开下限、压低上限），用于打破切向环流" ];
+            float InnerBias         = 0.08   [ Description="内部弱向心偏置权重（0=关闭）：随半径平方增长、锚点处为 0，只做整体向内偏置，避免群体塌成一点" ];
         }
     }
 
@@ -218,7 +225,10 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 In_MaxForce = User.MaxForce,
                 In_AnchorPosition = Engine.Owner.Position,
                 In_BoundaryRadius = User.BoundaryRadius,
-                In_BoundaryForce = User.BoundaryForce
+                In_BoundaryForce = User.BoundaryForce,
+                In_ShellStart = User.ShellStart,
+                In_ShellSpeedDamping = User.ShellSpeedDamping,
+                In_InnerBias = User.InnerBias
             );
         }
 
@@ -249,7 +259,6 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
             OverrideMaterials  = ["/Game/Boids/Material/M_BoidsArrow"];
         }
     }
-}
 
     // 调试网格：可复用发射器，文本源在 ../NE/BoidsDebugGrid.dfe（.dfe 自身不生成资产，DFX5097）。
     // 关掉它 = 删掉本块；它对 Boids 模拟没有任何影响（只读网格，不写网格，也不写别人的粒子）。
@@ -258,3 +267,4 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
     Emitter DebugGrid from "./NE/BoidsDebugGrid"
     {
     }
+}

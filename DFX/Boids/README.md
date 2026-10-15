@@ -41,6 +41,9 @@
   Stage 运行在积分之后，勿双重积分）。
 - **参数**：Wsep≈1.5 / Walgn≈1.0 / Wcoh≈1.0；Rsep≈0.3–0.5·R；
   MinSpeed < MaxSpeed ≤ SolveForces 的 SpeedLimit(500)。
+- **边界**：软边界回收（`ShellStart`×`BoundaryRadius` 起连续加压），压力同时收窄期望方向、压低速度
+  上限并放开速度下限，且作为第 4 条 steer 规则参与 `MaxForce` 预算——越界不再靠归一化之后的事后冲量，
+  活动体积内不存在零力面（旧版硬阈值会让 `r = BoundaryRadius` 成为吸引子，群体贴壳切向环流）。
 
 ## 调试工具：网格可视化（可单独拿走）
 
@@ -97,9 +100,6 @@ pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build  DFX/Boids/Niagara/NS_Boids.dfs 
 pwsh -File Plugins/DreamFX/.skill/dfx.ps1 verify DFX/Boids/Niagara/NS_Boids.dfs
 ```
 
-> 本机 `EngineAssociation`（5.8）未写入注册表，`dfx.ps1` 解析不到引擎，需追加
-> `-Engine '<引擎根>'`（如 `C:\Program Files\Epic Games\UE_5.8`）或先设 `$env:UE_ENGINE_ROOT`；
-> 否则报 `EngineAssociation '5.8' is not registered`。
 > **⚠ 系统重建请用 headless `dfx.ps1 build`，不要在编辑器里让 watcher 增量重建。** 2026-10-15 实测：
 > 改 `.dfe`（换 `SpriteRenderer.Counts` 的材质）后，编辑器的 watcher 在重建 `NS_Boids` 时崩溃
 > （`EXCEPTION_ACCESS_VIOLATION`，栈为 `DreamFXEditor!FNiagaraAdapter::AddUserVariable`
@@ -122,3 +122,6 @@ pwsh -File Plugins/DreamFX/.skill/dfx.ps1 verify DFX/Boids/Niagara/NS_Boids.dfs
 > `Saved/DreamFX/BuildSafety/` 里丢的只有那一条后加 `-Force`；第 2 类更干净的做法是在调用点把该输入
 > **显式点名**（本工具里 `In_SpriteScale = 0.6` 就是这么写的）。
 
+> 本机 `EngineAssociation`（5.8）未写入注册表，`dfx.ps1` 解析不到引擎，需追加
+> `-Engine '<引擎根>'`（如 `C:\Program Files\Epic Games\UE_5.8`）或先设 `$env:UE_ENGINE_ROOT`；
+> 否则报 `EngineAssociation '5.8' is not registered`。
