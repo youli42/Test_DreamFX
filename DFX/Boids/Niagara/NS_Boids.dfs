@@ -7,6 +7,10 @@
 // 行为: 分离 / 对齐 / 聚合三规则 → Reynolds steer → 写 Particles.Velocity。
 //   位置积分由 ParticleUpdate 的 SolveForcesAndVelocity 负责；两个 Stage 都在它之后运行，
 //   所以 Stage 里只写速度，不写位置（避免双重积分）。
+// 边界形状（User.BoundaryMode）: 0 = Sphere，回收面是半径 BoundaryRadius 的球（中心 = Engine.Owner.Position）；
+//   1 = Box，回收面是与邻域网格同尺寸、同中心、同朝向的轴对齐长方体，逐轴半边长 = GridSize/2 × BoundaryMargin。
+//   两种形状的压力都按逐轴公式算（Box 逐轴独立、Sphere 三轴退化成径向），共用一个 BoundaryForce。
+//   哪个参数在哪个模式下不生效，见 Group("边界回收") 各参数的 Description。
 // 自检着色（BoidsQueryGrid 写 Particles.Color，debug 用 RGB 纯色）: 在群里=绿 G，边缘=蓝 B，失联=红 R；
 //   阈值只写在 BoidsQueryGrid.dfm 的着色条件里，注释不写具体数字，避免与代码漂移。
 // 方向显示（MeshRenderer Arrows）: 每只 boid 渲染一个 Niagara 自带箭头网格
@@ -65,7 +69,10 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
         }
 
         Group("边界回收") {
-            float BoundaryRadius = 1500.0 [ Description="活动半径（cm）：超出后施加回收力，避免飞出网格后失去邻居" ];
+            int   BoundaryMode   = 1      [ Description="边界形状：0 = Sphere（球，半径 = BoundaryRadius），1 = Box（与邻域网格同尺寸/同中心/同朝向的轴对齐长方体，逐轴半边长 = GridSize/2 × BoundaryMargin）" ];
+            float BoundaryRadius = 1500.0 [ Description="球边界半径（cm）：回收从 BoxShellStart × 该值 起连续加压，到该值处压力满格。仅 BoundaryMode = 0（Sphere）生效；Box 模式下形状由 GridSize 与 BoundaryMargin 决定，本参数不生效" ];
+            float BoundaryMargin = 0.9    [ Description="Box 边界内缩系数（0.1–1）：半边长 = GridSize/2 × 该值，< 1 让边界面内缩于网格面、留出越冲余量（取 1 则 p = 1 的面与网格面重合，越冲即出格失联）。仅 BoundaryMode = 1 生效" ];
+            float BoxShellStart  = 0.75   [ Description="软边界起点（× 边界半径 / × Box 半边长，0.05–0.95）：越小则回收越早、群体被压得越紧。两种形状都生效" ];
             float BoundaryForce  = 1200.0 [ Description="边界回收力强度（cm/s²）" ];
         }
     }
@@ -217,7 +224,10 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 In_MinSpeed = User.MinSpeed,
                 In_MaxForce = User.MaxForce,
                 In_AnchorPosition = Engine.Owner.Position,
+                In_BoundaryMode = User.BoundaryMode,
                 In_BoundaryRadius = User.BoundaryRadius,
+                In_BoundaryMargin = User.BoundaryMargin,
+                In_BoxShellStart = User.BoxShellStart,
                 In_BoundaryForce = User.BoundaryForce
             );
         }
@@ -249,7 +259,6 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
             OverrideMaterials  = ["/Game/Boids/Material/M_BoidsArrow"];
         }
     }
-}
 
     // 调试网格：可复用发射器，文本源在 ../NE/BoidsDebugGrid.dfe（.dfe 自身不生成资产，DFX5097）。
     // 关掉它 = 删掉本块；它对 Boids 模拟没有任何影响（只读网格，不写网格，也不写别人的粒子）。
@@ -258,3 +267,4 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
     Emitter DebugGrid from "./NE/BoidsDebugGrid"
     {
     }
+}

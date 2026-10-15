@@ -4,6 +4,10 @@
 //
 // 运行语义（重要）: Stage 在 ParticleUpdate 之后执行，SolveForcesAndVelocity 已经做完位置积分，
 //   所以这里**只写 Velocity**，绝不写 Position（否则双重积分）。
+// 边界形状: In_BoundaryMode 选 Sphere（In_AnchorPosition + In_BoundaryRadius）或
+//   Box（In_GridCenter + In_GridSize，逐轴半边长 × In_BoundaryMargin）。两种形状共用同一套逐轴压力公式，
+//   不生效的参数已在各自的 Description 里写明；换成 Box 后 p = 1 的面向网格面靠近，`In_BoundaryMargin`
+//   是唯一的越冲余量，别把它取到 1。
 // 只依赖引擎的 NeighborGrid3D / ParticleRead 接口，不引用 NeighborGrid3D 工具箱任何资产。
 // 注意: Name= 指向 /Game/Boids/Niagara/NM/BoidsQueryGrid，构建本文件会生成/接管该资产。
 Module(Name="Boids/Niagara/NM/BoidsQueryGrid", Root="Game")
@@ -28,7 +32,11 @@ Module(Name="Boids/Niagara/NM/BoidsQueryGrid", Root="Game")
         float   In_MinSpeed         = 120.0;
         float   In_MaxForce         = 800.0;
         Vector  In_AnchorPosition   = (0.0, 0.0, 0.0);
+        // 边界形状: 0 = Sphere（In_BoundaryRadius 生效）, 1 = Box（In_GridCenter/In_GridSize 生效）
+        int     In_BoundaryMode     = 0;
         float   In_BoundaryRadius   = 1500.0;
+        float   In_BoundaryMargin   = 0.9;
+        float   In_BoxShellStart    = 0.75;
         float   In_BoundaryForce    = 1200.0;
     }
 
@@ -153,14 +161,57 @@ Module(Name="Boids/Niagara/NM/BoidsQueryGrid", Root="Game")
 
         float3 NewVelocity = In_Velocity + SteeringForce * In_DeltaTime;
 
-        // 边界回收：越过活动半径就往回拉，避免飞出网格后失去邻居（出格即失联）
-        const float3 ToAnchor = In_AnchorPosition - In_Position;
-        const float DistanceToAnchor = length(ToAnchor);
+        // ==== 边界回收：越过活动边界就往回拉，避免飞出网格后失去邻居（出格即失联）====
+        // 两种形状走同一条逐轴公式：把位置换算成轴对齐单元坐标 u_i（|u_i| = 1 就是边界，
+        // 边界中心 = 锚点/网格中心，朝向 = 世界轴），再按 |u_i| 越过 In_BoxShellStart（边界半径的比例）的多少取压力 p_i。
+        //   Box : u_i = (Position_i - GridCenter_i) / (GridSize_i * 0.5 * BoundaryMargin)
+        //         → 逐轴半边长取自 In_GridSize，天然与 NeighborGrid 同尺寸、同中心、同朝向；
+        //           BoundaryMargin < 1 让边界面内缩于网格面，越冲余量留在这里。
+        //   Sphere: u_i = 各轴相同的 (Position - Anchor) / BoundaryRadius
+        //         → 三轴 p_i 相同，回正力自然退化成纯径向（逐轴公式不必分支）。
+        //         注意与"硬阈值"旧实现的差别: 旧实现只在 r > BoundaryRadius 时给力，而 r = BoundaryRadius
+        //         恰好是零力面（切向速度不受阻，是贴壳环流的成因）；这里从 In_BoxShellStart × 半径
+        //         起就连续加压，使力在边界内侧、边界处满格且向外单调 —— 这是有意的行为改动。
+        // 方向: 取最近的那个面（|u_i| 最大的轴），回正力就沿该轴的面法线 —— 长方面上方向恒定，
+        //       不会在墙面内部产生切向分量。不要把各轴 -sign(u_i) * p_i 归一化后当方向用：
+        //       在靠近某个面、但另一轴的压力更大时，那个"混合方向"会几乎完全垂直于该面
+        //       （即沿墙面切向），正是要避免的贴壁环流。
+        // 压力取 max(p_i) 而不是 length: 角上压力与面上相同，避免角落受力叠加造成堆积。
+        // 生效语义: BoundaryMode = 0 时 In_BoundaryRadius 定义球半径（In_BoundaryMargin 不生效）；
+        //           BoundaryMode = 1 时 In_GridSize × In_BoundaryMargin 定义长方体半边长（In_BoundaryRadius 不生效）。
+        const float3 BoundaryCenter = (In_BoundaryMode == 0) ? In_AnchorPosition : In_GridCenter;
+        const float3 BoundaryExtent = (In_BoundaryMode == 0)
+            ? float3(In_BoundaryRadius, In_BoundaryRadius, In_BoundaryRadius)
+            : In_GridSize * 0.5 * clamp(In_BoundaryMargin, 0.1, 1.0);
 
-        if(DistanceToAnchor > In_BoundaryRadius)
+        const float3 BoundaryOffset = In_Position - BoundaryCenter;
+        const float3 UnitBoundary   = BoundaryOffset / max(BoundaryExtent, float3(0.0001, 0.0001, 0.0001));
+        const float3 UnitAbs        = abs(UnitBoundary);
+
+        const float ShellStart = clamp(In_BoxShellStart, 0.05, 0.95);
+        const float ShellSpan  = max(1.0 - ShellStart, 0.0001);
+        const float3 AxisT = clamp((UnitAbs - float3(ShellStart, ShellStart, ShellStart)) / ShellSpan,
+                                   float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
+        // 逐轴压力：软阈值从 ShellStart 升到 1 时 0 → 1，平方是为了让吸力更晚、更硬
+        const float3 AxisPressure = AxisT * AxisT;
+
+        const float BoundaryPressure = max(AxisPressure.x, max(AxisPressure.y, AxisPressure.z));
+
+        // 越冲量沿各轴相加，而不是只沿一个方向: Box 的角上是两个方向同时压
+        const float3 Overshoot = max(UnitAbs - float3(1.0, 1.0, 1.0), float3(0.0, 0.0, 0.0));
+
+        if(BoundaryPressure > 0.0001 && dot(BoundaryOffset, BoundaryOffset) > 0.0001)
         {
-            const float BoundaryScale = (DistanceToAnchor - In_BoundaryRadius) / max(In_BoundaryRadius, 0.0001);
-            NewVelocity += (ToAnchor / DistanceToAnchor) * In_BoundaryForce * BoundaryScale * In_DeltaTime;
+            const float3 DominantAxis = (UnitAbs.x >= UnitAbs.y && UnitAbs.x >= UnitAbs.z)
+                ? float3(1.0, 0.0, 0.0)
+                : ((UnitAbs.y >= UnitAbs.z) ? float3(0.0, 1.0, 0.0) : float3(0.0, 0.0, 1.0));
+
+            // -sign(BoundaryOffset) 是"从最近的那面往回指"的符号: 在面内侧指向内，在面外侧也指向内。
+            // Perpendicular 分量（轴之外的另外两轴）由 DominantAxis 置 0，所以面上方向恒为面法线。
+            const float3 BoundaryDir = -sign(BoundaryOffset) * DominantAxis;
+
+            NewVelocity += (BoundaryDir * BoundaryPressure + (-sign(BoundaryOffset)) * Overshoot)
+                         * In_BoundaryForce * In_DeltaTime;
         }
 
         // 速度带：引擎 SolveForcesAndVelocity 的 SpeedLimit(500) 只是最后一道闸

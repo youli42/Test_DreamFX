@@ -41,6 +41,15 @@
   Stage 运行在积分之后，勿双重积分）。
 - **参数**：Wsep≈1.5 / Walgn≈1.0 / Wcoh≈1.0；Rsep≈0.3–0.5·R；
   MinSpeed < MaxSpeed ≤ SolveForces 的 SpeedLimit(500)。
+- **边界形状**（`User.BoundaryMode`，issue #6）：`0 = Sphere`——半径 `BoundaryRadius` 的球，
+  中心 `Engine.Owner.Position`；`1 = Box`——与邻域网格同尺寸/同中心/同朝向的轴对齐长方体，
+  逐轴半边长 = `GridSize/2 × BoundaryMargin`。两种形状在 `BoidsQueryGrid.dfm` 里共用同一条逐轴压力公式
+  （Sphere 三轴相等、退化成径向球壳），所以只有一个 `BoundaryForce`；哪个参数在哪个模式下不生效写在系统里
+  各参数的 `Description` 上。`BoundaryMargin` 是 Box 唯一的越冲余量——`p = 1` 的面若与网格面重合就出格失联
+  （`BoidsFillGrid` 只登记落在 `[0, NumCells)` 的粒子），别取 1。
+  压力取 `max(p_i)` 而非 `length`（角上压力与面上相同，避免角落堆积），**方向取 |u_i| 最大的那一轴的面法线**：
+  长方面上方向恒定、不产生切向分量。不要把 `-sign(u_i) × p_i` 归一化后当方向——靠近某面而另一轴压力更大时，
+  那个混合方向会几乎垂直于该面（沿墙切向），正是要避免的贴壁环流；角落的斜向回收交给越冲项（逐轴相加）。
 
 ## 调试工具：网格可视化（可单独拿走）
 
