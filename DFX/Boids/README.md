@@ -39,6 +39,12 @@
 - **实现规则**：累加器在 `#if GPU_SIMULATION` 之前清零；矩阵输入拆 `W2URow0..3`（DFX4021）；
   `Type Particles.X = ...;` 声明行上方不得有注释；Stage 只写 `Velocity`（位置积分由引擎负责，
   Stage 运行在积分之后，勿双重积分）。
+- **转向卫生**（issue #7）：`User.MaxTurnRate` 给速度方向加角速度上限（`MaxForce` 在默认参数下
+  是死代码，别再指望它），**边界回收力不受该上限限制**——否则 #2 的回中被拖慢；无邻居时保持直飞
+  （旧实现把期望速度算成 0，等于全速刹车到 `MinSpeed`，速度在 80↔300 之间脉动 → 箭头长度忽长
+  忽短）；分离累加量近 0 时按"一个邻居满推力的 5%"死区 + 0.05→0.5 线性淡入（不让浮点噪声变成
+  单位方向，而它的权重最大）；感知球边界用 `smoothstep(R×0.75, R, d)` 渐隐；模块内 `dt` 夹到
+  1/30。三规则"各自单位化后加权"仍是启发式，带幅度的加权留作后续。
 - **参数**：Wsep≈1.5 / Walgn≈1.0 / Wcoh≈1.0；Rsep≈0.3–0.5·R；
   MinSpeed < MaxSpeed ≤ SolveForces 的 SpeedLimit(500)。
 - **边界形状**（`User.BoundaryMode`，issue #6）：`0 = Sphere`——半径 `BoundaryRadius` 的球，

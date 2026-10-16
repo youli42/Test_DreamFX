@@ -7,6 +7,9 @@
 // 行为: 分离 / 对齐 / 聚合三规则 → Reynolds steer → 写 Particles.Velocity。
 //   位置积分由 ParticleUpdate 的 SolveForcesAndVelocity 负责；两个 Stage 都在它之后运行，
 //   所以 Stage 里只写速度，不写位置（避免双重积分）。
+// 转向卫生（issue #7）: 速度方向受 User.MaxTurnRate 角速度上限约束（每帧最多转 MaxTurnRate × dt，
+//   边界回收力不受限）；没有邻居时保持直飞而不是刹车；分离累加量近 0 时按死区淡出；感知球边界渐隐；
+//   模块内 dt 夹到 1/30。细节见 NM/BoidsQueryGrid.dfm 的注释。
 // 边界形状（User.BoundaryMode）: 0 = Sphere，回收面是半径 BoundaryRadius 的球（中心 = Engine.Owner.Position）；
 //   1 = Box，回收面是与邻域网格同尺寸、同中心、同朝向的轴对齐长方体，逐轴半边长 = GridSize/2 × BoundaryMargin。
 //   两种形状的压力都按逐轴公式算（Box 逐轴独立、Sphere 三轴退化成径向），共用一个 BoundaryForce。
@@ -65,7 +68,8 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
         Group("运动限制") {
             float MaxSpeed = 300.0 [ Description="最高速度（cm/s），必须 < SolveForcesAndVelocity 的 SpeedLimit(500)" ];
             float MinSpeed = 80.0 [ Description="最低速度（cm/s）；若起步抖动明显，先设为 0，稳定后再抬" ];
-            float MaxForce = 800.0 [ Description="最大转向加速度（cm/s²）；dt=1/60 时每帧最多 Δv≈13cm/s" ];
+            float MaxForce = 800.0 [ Description="最大转向加速度（cm/s²）；dt=1/60 时每帧最多 Δv≈13cm/s。默认参数下不会触发（需要的最大力 2×MaxSpeed=600 < 800），真正限制转向的是 MaxTurnRate" ];
+            float MaxTurnRate = 1.2 [ Description="最大转向角速度（rad/s）：速度方向每帧最多朝期望方向转 MaxTurnRate × dt，抑制朝向抖动的主闸门；当前隐式上限 ≈ 2×MaxSpeed/MaxSpeed = 2.0，调小更稳、调大更灵。边界回收力不受它限制" ];
         }
 
         Group("边界回收") {
@@ -223,6 +227,7 @@ System(Name="Boids/Niagara/NS_Boids", Root="Game")
                 In_MaxSpeed = User.MaxSpeed,
                 In_MinSpeed = User.MinSpeed,
                 In_MaxForce = User.MaxForce,
+                In_MaxTurnRate = User.MaxTurnRate,
                 In_AnchorPosition = Engine.Owner.Position,
                 In_BoundaryMode = User.BoundaryMode,
                 In_BoundaryRadius = User.BoundaryRadius,
