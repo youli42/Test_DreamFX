@@ -12,6 +12,7 @@ class USkyAtmosphereComponent;
 class UVolumetricCloudComponent;
 class UExponentialHeightFogComponent;
 class UTODSubsystem;
+class UTODWeatherSubsystem;
 
 /**
  * ATODSkyManager
@@ -79,7 +80,11 @@ private:
 	/** Read clock from subsystem and drive sun/moon/skylight. */
 	void UpdateCelestials();
 
+	/** Apply blended weather to fog, cloud layer and light multipliers. */
+	void UpdateWeatherApplication();
+
 	UTODSubsystem* GetTOD() const;
+	UTODWeatherSubsystem* GetTODWeather() const;
 
 public:
 	/** Directional light acting as the physical sun (atmosphere sun light index 0). */

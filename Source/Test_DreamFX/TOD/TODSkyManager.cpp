@@ -3,6 +3,7 @@
 #include "TODSkyManager.h"
 
 #include "TODSubsystem.h"
+#include "TODWeatherSubsystem.h"
 
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -132,7 +133,14 @@ void ATODSkyManager::Tick(float DeltaSeconds)
 		TOD->AdvanceTime(DeltaSeconds);
 	}
 
+	// Weather blending shares the same driver source as the clock.
+	if (UTODWeatherSubsystem* Weather = GetTODWeather())
+	{
+		Weather->TickWeather(DeltaSeconds);
+	}
+
 	UpdateCelestials();
+	UpdateWeatherApplication();
 }
 
 void ATODSkyManager::UpdateCelestials()
@@ -141,6 +149,18 @@ void ATODSkyManager::UpdateCelestials()
 	if (!TOD || !SunLight || !MoonLight)
 	{
 		return;
+	}
+
+	// Weather modulates the celestial lights (1.0 when no weather subsystem).
+	float WeatherSunScale = 1.0f;
+	float WeatherMoonScale = 1.0f;
+	float WeatherSkyScale = 1.0f;
+	if (const UTODWeatherSubsystem* Weather = GetTODWeather())
+	{
+		const FTODWeatherState& State = Weather->GetCurrentState();
+		WeatherSunScale = State.SunIntensityScale;
+		WeatherMoonScale = State.MoonIntensityScale;
+		WeatherSkyScale = State.SkyLightScale;
 	}
 
 	const float SunElev = TOD->GetSunElevation01();
@@ -163,7 +183,7 @@ void ATODSkyManager::UpdateCelestials()
 	if (bSunUp)
 	{
 		const float Daylight = FMath::Pow(SunElev, 0.6f);
-		SunLight->Intensity = SunPeakIntensity * Daylight;
+		SunLight->Intensity = SunPeakIntensity * Daylight * WeatherSunScale;
 
 		// Warm the light as the sun approaches the horizon.
 		const float Warmth = 1.0f - FMath::Clamp(SunElev / 0.35f, 0.0f, 1.0f);
@@ -173,9 +193,44 @@ void ATODSkyManager::UpdateCelestials()
 	else
 	{
 		const float Moonlight = FMath::Pow(FMath::Max(MoonElev, 0.0f), 0.7f);
-		MoonLight->Intensity = MoonPeakIntensity * FMath::Max(Moonlight, 0.05f);
+		MoonLight->Intensity = MoonPeakIntensity * FMath::Max(Moonlight, 0.05f) * WeatherMoonScale;
 		MoonLight->LightColor = MoonColor.ToFColor(/*bSRGB*/ false);
 	}
+
+	if (SkyLight)
+	{
+		SkyLight->Intensity = 1.0f * WeatherSkyScale;
+	}
+}
+
+void ATODSkyManager::UpdateWeatherApplication()
+{
+	const UTODWeatherSubsystem* Weather = GetTODWeather();
+	if (!Weather)
+	{
+		return;
+	}
+	const FTODWeatherState& State = Weather->GetCurrentState();
+
+	if (HeightFog)
+	{
+		// Weather owns the fog density outright (absolute value from the preset).
+		HeightFog->FogDensity = State.FogDensity;
+	}
+
+	if (VolumetricClouds)
+	{
+		// Coverage fades the whole cloud layer in/out for now; material-driven
+		// coverage arrives with the M3 cloud work.
+		const bool bCloudsWanted = bEnableVolumetricCloud && State.CloudCoverage > 0.02f;
+		VolumetricClouds->SetVisibility(bCloudsWanted);
+	}
+}
+
+UTODWeatherSubsystem* ATODSkyManager::GetTODWeather() const
+{
+	const UWorld* World = GetWorld();
+	return World ? World->GetSubsystem<UTODWeatherSubsystem>() : nullptr;
 }
 
 UTODSubsystem* ATODSkyManager::GetTOD() const
