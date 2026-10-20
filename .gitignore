@@ -85,6 +85,8 @@ DFX/DreamFX.code-workspace
 /Content/Samples/Niagara/*.uasset
 /Content/Boids/Niagara/
 /Content/Boids/Material/
+# TOD 昼夜系统:DFX/TOD/Niagara 文本构建产物,可随时重建,不入库
+/Content/TOD/Niagara/
 # 旧的反编译镜像构建位置（已被原位构建取代，残留不入库）
 /Content/Decompiled/
 

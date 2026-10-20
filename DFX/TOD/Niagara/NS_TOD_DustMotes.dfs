@@ -1,0 +1,77 @@
+// TOD 环境浮尘 —— 昼夜循环场景的日间氛围粒子(M1 配套)。
+// 构建: pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/TOD/Niagara/NS_TOD_DustMotes.dfs -Force
+// 资产: /Game/TOD/Niagara/NS_TOD_DustMotes
+//
+// 设计: 大体积低密度浮尘, 逆光时可见。慢速 Curl 噪声漂移, 生命周期两端淡入淡出,
+//       不受重力(悬浮), 固定包围盒(GPU 模拟要求)。M2 起可由天气状态机调 User.SpawnRate
+//       控制密度(晴天多 / 雨天少), M1 先做自包含验证。
+System(Name="TOD/Niagara/NS_TOD_DustMotes", Root="Game")
+{
+    Settings = {
+        WarmupTime  = 8.0;   // 预热出稳定悬浮状态
+        FixedBounds = box(-400, -400, -100, 400, 400, 500);
+    }
+
+    Emitter Motes
+    {
+        Settings = {
+            SimTarget          = GPU;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 300;
+            FixedBounds        = box(-400, -400, -100, 400, 400, 500);
+        }
+
+        EmitterUpdate = {
+            EmitterState();
+            SpawnRate(SpawnRate = 45.0);
+        }
+
+        ParticleSpawn = {
+            // 出生在一个大球壳内, 随组件(挂在场景中)定位
+            Spawn/Location/V2/SphereLocation(SphereRadius = 450.0);
+
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode = Random,
+                LifetimeMin  = 8.0,
+                LifetimeMax  = 14.0,
+                ColorMode    = DirectSet,
+                Color        = (0.92, 0.86, 0.70, 0.16),
+                SpriteSizeMode = RandomUniform,
+                UniformSpriteSizeMin = 1.5,
+                UniformSpriteSizeMax = 3.5
+            );
+
+            SystemLocation();
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+
+            // 微弱无散度流场 + 轻微上升, 像光照里的浮尘
+            Update/Forces/V2/CurlNoiseForce(
+                NoiseStrength  = 12.0,
+                NoiseFrequency = 0.05,
+                PanNoise       = true,
+                PanNoiseField  = (0, 0, 3.0)
+            );
+            Drag(Drag = 2.5);
+            SolveForcesAndVelocity();
+
+            // 体积感: 靠近生命周期两端淡出
+            Color Particles.Color = hlsl {
+                float4(Particles.Color.rgb,
+                       Particles.Color.a
+                           * saturate(2.0 * Particles.NormalizedAge)
+                           * saturate(2.0 * (1.0 - Particles.NormalizedAge)))
+            };
+        }
+
+        SpriteRenderer Dust
+        {
+            FacingMode = FaceCamera;
+
+            Bind Color      -> Particles.Color;
+            Bind SpriteSize -> Particles.SpriteSize;
+        }
+    }
+}
