@@ -1,0 +1,71 @@
+// Copyright (c) 2026 Test_DreamFX Contributors. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Subsystems/WorldSubsystem.h"
+#include "TODSubsystem.generated.h"
+
+/**
+ * UTODSubsystem
+ *
+ * World-scoped time-of-day state. Holds the authoritative in-game clock and
+ * exposes it to any driver (ATODSkyManager advances it by default).
+ *
+ * Design note: the subsystem owns *state only*; it never ticks. A scene actor
+ * (ATODSkyManager) advances the clock so that time only moves while a sky
+ * rig exists in the level. This mirrors the "environment manager broadcasts
+ * state" pattern used by production weather/TOD systems.
+ */
+UCLASS(Blueprintable, BlueprintType)
+class TEST_DREAMFX_API UTODSubsystem : public UWorldSubsystem
+{
+	GENERATED_BODY()
+
+public:
+	//~ UWorldSubsystem interface
+	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
+
+	/** Advance the in-game clock. Call once per frame from a driver actor. */
+	void AdvanceTime(float DeltaSeconds);
+
+	/** Current in-game time in hours [0, 24). 0 = midnight, 12 = noon. */
+	UFUNCTION(BlueprintPure, Category="TOD")
+	float GetTimeOfDayHours() const { return TimeOfDayHours; }
+
+	/** Set the in-game clock directly (wraps into [0, 24)). */
+	UFUNCTION(BlueprintCallable, Category="TOD")
+	void SetTimeOfDayHours(float InHours);
+
+	/** Normalized sun elevation of the current time: sin curve, 1 at noon, 0 at sunrise/sunset, -1 at midnight. */
+	UFUNCTION(BlueprintPure, Category="TOD")
+	float GetSunElevation01() const;
+
+	/** Normalized moon elevation of the current time. */
+	UFUNCTION(BlueprintPure, Category="TOD")
+	float GetMoonElevation01() const;
+
+	/** In-game hours per real-time second while advancing. */
+	float GetTimeScale() const;
+
+	/** Console command handler: set the clock, e.g. `tod.SetTime 21.5`. */
+	static void HandleConsoleSetTime(const TArray<FString>& Args);
+
+	/** Console command handler: print current TOD state, `tod.Info`. */
+	static void HandleConsoleInfo();
+
+	/** Resolve a subsystem for console commands without a world context (uses PIE / first game world). */
+	static UTODSubsystem* GetForConsole();
+
+private:
+	/** In-game hours [0, 24). */
+	float TimeOfDayHours = 9.0f;
+
+	/** In-game hours advanced per real-time second (0.1 => a full day in 4 minutes). */
+	float TimeScaleHoursPerSecond = 0.1f;
+
+	/** When false, AdvanceTime is a no-op (clock still settable). */
+	bool bAutoAdvance = true;
+};
