@@ -45,6 +45,10 @@ ATODSkyManager::ATODSkyManager()
 	MoonLight->bCastCloudShadows = true;
 	MoonLight->Intensity = 0.2f;
 	MoonLight->SetRelativeRotation(FRotator(-45.0f, MoonYawDegrees, 0.0f));
+	// Editor-state policy: only ONE celestial light is ever visible. UpdateCelestials()
+	// toggles visibility exclusively (sun XOR moon) while running; hiding the moon here
+	// guarantees no dual-primary-light contest in the un-ticked editor world either.
+	MoonLight->SetVisibility(false);
 
 	SkyLight = CreateDefaultSubobject<USkyLightComponent>(TEXT("SkyLight"));
 	SkyLight->SetupAttachment(Root);
