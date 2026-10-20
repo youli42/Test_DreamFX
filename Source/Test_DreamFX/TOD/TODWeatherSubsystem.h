@@ -57,6 +57,14 @@ struct FTODWeatherPreset
 	/** Marks lightning-capable weather (thunderstorm). Consumed by M4. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather")
 	bool bLightning = false;
+
+	/** Rain particle intensity 0-1; drives NS_TOD_Rain User.SpawnRateScale. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float RainIntensity = 0.0f;
+
+	/** Snow particle intensity 0-1; drives NS_TOD_Snow User.SpawnRateScale. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float SnowIntensity = 0.0f;
 };
 
 /**
@@ -96,6 +104,23 @@ struct FTODWeatherState
 
 	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
 	bool bLightning = false;
+
+	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
+	float RainIntensity = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
+	float SnowIntensity = 0.0f;
+};
+
+/** Serializable weather state; games persist the preset name with their save. */
+USTRUCT(BlueprintType)
+struct FTODWeatherSnapshot
+{
+	GENERATED_BODY()
+
+	/** Preset the world was in at save time. */
+	UPROPERTY(BlueprintReadWrite, Category="TOD|Weather")
+	FName PresetName = TEXT("ClearSky");
 };
 
 /**
@@ -142,6 +167,14 @@ public:
 	/** Register or replace a preset at runtime (also used by tests). */
 	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
 	void RegisterPreset(const FTODWeatherPreset& Preset);
+
+	/** Snapshot the blend target for persistence (issue #10 save interface). */
+	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
+	FTODWeatherSnapshot GetWeatherSnapshot() const;
+
+	/** Restore a snapshot; bInstant skips the transition (correct for load). */
+	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
+	bool ApplyWeatherSnapshot(const FTODWeatherSnapshot& Snapshot, bool bInstant = true);
 
 	/** Seconds between automatic weather changes; <= 0 disables auto scheduling. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather")

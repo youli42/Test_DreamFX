@@ -41,7 +41,7 @@ bool UTODSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 void UTODSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	UE_LOG(LogTOD, Log, TEXT("TODSubsystem initialized. Default time %.2fh, scale %.3fh/s."), TimeOfDayHours, TimeScaleHoursPerSecond);
+	UE_LOG(LogTOD, Log, TEXT("TODSubsystem initialized. Default time %.2fh, day length %.2f min."), TimeOfDayHours, DayLengthMinutes);
 }
 
 void UTODSubsystem::Deinitialize()
@@ -67,7 +67,41 @@ void UTODSubsystem::SetTimeOfDayHours(float InHours)
 float UTODSubsystem::GetTimeScale() const
 {
 	const float CVarOverride = TODCVars::CVarTODTimeScale.GetValueOnGameThread();
-	return (CVarOverride >= 0.0f) ? CVarOverride : TimeScaleHoursPerSecond;
+	if (CVarOverride >= 0.0f)
+	{
+		return CVarOverride;
+	}
+	if (DayLengthMinutes <= 0.0f)
+	{
+		return 0.0f; // paused
+	}
+	return 24.0f / (60.0f * DayLengthMinutes);
+}
+
+void UTODSubsystem::SetDayLengthMinutes(float MinutesPerDay)
+{
+	DayLengthMinutes = FMath::Max(MinutesPerDay, 0.0f);
+	UE_LOG(LogTOD, Log, TEXT("Day length set to %.2f real minutes per in-game day (%.3f h/s)."), DayLengthMinutes, GetTimeScale());
+}
+
+float UTODSubsystem::GetDayLengthMinutes() const
+{
+	return DayLengthMinutes;
+}
+
+FTODTimeSnapshot UTODSubsystem::GetTimeSnapshot() const
+{
+	FTODTimeSnapshot Snapshot;
+	Snapshot.TimeOfDayHours = TimeOfDayHours;
+	Snapshot.DayLengthMinutes = DayLengthMinutes;
+	return Snapshot;
+}
+
+void UTODSubsystem::ApplyTimeSnapshot(const FTODTimeSnapshot& Snapshot)
+{
+	DayLengthMinutes = FMath::Max(Snapshot.DayLengthMinutes, 0.0f);
+	SetTimeOfDayHours(Snapshot.TimeOfDayHours);
+	UE_LOG(LogTOD, Log, TEXT("Time snapshot applied: %.2fh, %.2f min/day."), TimeOfDayHours, DayLengthMinutes);
 }
 
 float UTODSubsystem::GetSunElevation01() const

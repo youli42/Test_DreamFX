@@ -57,6 +57,8 @@ void UTODWeatherSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	Current.MoonIntensityScale = TargetPreset.MoonIntensityScale;
 	Current.SkyLightScale = TargetPreset.SkyLightScale;
 	Current.bLightning = TargetPreset.bLightning;
+	Current.RainIntensity = TargetPreset.RainIntensity;
+	Current.SnowIntensity = TargetPreset.SnowIntensity;
 
 	UE_LOG(LogTODWeather, Log, TEXT("TODWeatherSubsystem initialized. %d presets, starting '%s'."), Presets.Num(), *TargetPreset.Name.ToString());
 }
@@ -119,6 +121,7 @@ void UTODWeatherSubsystem::RegisterDefaultPresets()
 	LightRain.Wetness = 0.7f;
 	LightRain.SunIntensityScale = 0.3f;
 	LightRain.SkyLightScale = 0.6f;
+	LightRain.RainIntensity = 0.5f;
 	RegisterPreset(LightRain);
 
 	FTODWeatherPreset Thunder;
@@ -131,7 +134,32 @@ void UTODWeatherSubsystem::RegisterDefaultPresets()
 	Thunder.SunIntensityScale = 0.18f;
 	Thunder.SkyLightScale = 0.5f;
 	Thunder.bLightning = true;
+	Thunder.RainIntensity = 1.0f;
 	RegisterPreset(Thunder);
+
+	FTODWeatherPreset LightSnow;
+	LightSnow.Name = TEXT("LightSnow");
+	LightSnow.ScheduleWeight = 1.0f;
+	LightSnow.CloudCoverage = 0.8f;
+	LightSnow.FogDensity = 0.0010f;
+	LightSnow.WindStrength = 0.3f;
+	LightSnow.SnowAmount = 0.5f;
+	LightSnow.SunIntensityScale = 0.45f;
+	LightSnow.SkyLightScale = 0.75f;
+	LightSnow.SnowIntensity = 0.45f;
+	RegisterPreset(LightSnow);
+
+	FTODWeatherPreset Snow;
+	Snow.Name = TEXT("Snow");
+	Snow.ScheduleWeight = 1.0f;
+	Snow.CloudCoverage = 0.95f;
+	Snow.FogDensity = 0.0015f;
+	Snow.WindStrength = 0.45f;
+	Snow.SnowAmount = 1.0f;
+	Snow.SunIntensityScale = 0.3f;
+	Snow.SkyLightScale = 0.7f;
+	Snow.SnowIntensity = 1.0f;
+	RegisterPreset(Snow);
 }
 
 void UTODWeatherSubsystem::RegisterPreset(const FTODWeatherPreset& Preset)
@@ -144,12 +172,53 @@ void UTODWeatherSubsystem::RegisterPreset(const FTODWeatherPreset& Preset)
 	Presets.Add(Preset.Name, Preset);
 }
 
+FTODWeatherSnapshot UTODWeatherSubsystem::GetWeatherSnapshot() const
+{
+	FTODWeatherSnapshot Snapshot;
+	Snapshot.PresetName = TargetPreset.Name;
+	return Snapshot;
+}
+
+bool UTODWeatherSubsystem::ApplyWeatherSnapshot(const FTODWeatherSnapshot& Snapshot, bool bInstant)
+{
+	if (!bInstant)
+	{
+		return ForceWeather(Snapshot.PresetName, -1.0f);
+	}
+
+	const FTODWeatherPreset* Found = Presets.Find(Snapshot.PresetName);
+	if (!Found)
+	{
+		UE_LOG(LogTODWeather, Warning, TEXT("ApplyWeatherSnapshot: unknown preset '%s'."), *Snapshot.PresetName.ToString());
+		return false;
+	}
+
+	TargetPreset = *Found;
+	bTransitioning = false;
+	Current.CurrentPreset = Found->Name;
+	Current.CloudCoverage = Found->CloudCoverage;
+	Current.FogDensity = Found->FogDensity;
+	Current.WindStrength = Found->WindStrength;
+	Current.Wetness = Found->Wetness;
+	Current.SnowAmount = Found->SnowAmount;
+	Current.SunIntensityScale = Found->SunIntensityScale;
+	Current.MoonIntensityScale = Found->MoonIntensityScale;
+	Current.SkyLightScale = Found->SkyLightScale;
+	Current.bLightning = Found->bLightning;
+	Current.RainIntensity = Found->RainIntensity;
+	Current.SnowIntensity = Found->SnowIntensity;
+	ApplyStateToMPC();
+
+	UE_LOG(LogTODWeather, Log, TEXT("Weather snapshot applied instantly: '%s'."), *Found->Name.ToString());
+	return true;
+}
+
 bool UTODWeatherSubsystem::ForceWeather(FName PresetName, float InTransitionSeconds)
 {
 	const FTODWeatherPreset* Found = Presets.Find(PresetName);
 	if (!Found)
 	{
-		UE_LOG(LogTODWeather, Warning, TEXT("ForceWeather: unknown preset '%s'. Known: ClearSky, PartlyCloudy, Overcast, Foggy, LightRain, Thunderstorm (+ any registered)."), *PresetName.ToString());
+		UE_LOG(LogTODWeather, Warning, TEXT("ForceWeather: unknown preset '%s'. Built-in: ClearSky, PartlyCloudy, Overcast, Foggy, LightRain, Thunderstorm, LightSnow, Snow (+ any registered)."), *PresetName.ToString());
 		return false;
 	}
 
@@ -213,6 +282,8 @@ void UTODWeatherSubsystem::TickWeather(float DeltaSeconds)
 		Current.MoonIntensityScale = FMath::Lerp(FromState.MoonIntensityScale, TargetPreset.MoonIntensityScale, Alpha);
 		Current.SkyLightScale = FMath::Lerp(FromState.SkyLightScale, TargetPreset.SkyLightScale, Alpha);
 		Current.bLightning = TargetPreset.bLightning;
+		Current.RainIntensity = FMath::Lerp(FromState.RainIntensity, TargetPreset.RainIntensity, Alpha);
+		Current.SnowIntensity = FMath::Lerp(FromState.SnowIntensity, TargetPreset.SnowIntensity, Alpha);
 		Current.CurrentPreset = TargetPreset.Name;
 
 		if (TransitionElapsed >= ActiveTransitionSeconds)

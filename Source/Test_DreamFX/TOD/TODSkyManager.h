@@ -7,6 +7,7 @@
 #include "TODSkyManager.generated.h"
 
 class UDirectionalLightComponent;
+class UNiagaraComponent;
 class USkyLightComponent;
 class USkyAtmosphereComponent;
 class UVolumetricCloudComponent;
@@ -46,6 +47,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Time")
 	bool bAutoAdvanceTime = true;
 
+	/** Editor-only time scrubber: change it (or press the button) to preview the sky
+	 *  in the viewport without PIE. The runtime cycle is driven by UTODSubsystem. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Time", meta=(ClampMin="0.0", ClampMax="24.0"))
+	float PreviewTimeHours = 12.0f;
+
+	/** Apply the sun/moon state for PreviewTimeHours in the editor world (details-panel button). */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category="TOD|Time")
+	void RefreshSkyPreview();
+
+	/** Sun/moon sine elevations [-1,1] for an in-game hour. Shared by runtime and preview. */
+	static void ComputeElevations(float TimeHours, float& OutSunElev, float& OutMoonElev);
+
 	/** SkyLight real-time capture (dynamic ambient). Disable for fully static lighting studies. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Sky")
 	bool bSkyLightRealTimeCapture = true;
@@ -80,6 +93,9 @@ private:
 	/** Read clock from subsystem and drive sun/moon/skylight. */
 	void UpdateCelestials();
 
+	/** Position, fade and color the two celestial lights from elevations (crossfade at the horizon). */
+	void ApplySunMoon(float SunElev, float MoonElev, float WeatherSunScale, float WeatherMoonScale, float WeatherSkyScale);
+
 	/** Apply blended weather to fog, cloud layer and light multipliers. */
 	void UpdateWeatherApplication();
 
@@ -110,6 +126,14 @@ public:
 	/** Height fog for distance haze (driven by weather in later milestones, present for completeness). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="TOD|Components")
 	TObjectPtr<UExponentialHeightFogComponent> HeightFog;
+
+	/** Rain system whose User.SpawnRateScale follows the weather RainIntensity. Optional. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Weather FX")
+	TObjectPtr<UNiagaraComponent> RainComponent;
+
+	/** Snow system whose User.SpawnRateScale follows the weather SnowIntensity. Optional. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Weather FX")
+	TObjectPtr<UNiagaraComponent> SnowComponent;
 
 private:
 	/** Sun light color near the horizon (warm). */

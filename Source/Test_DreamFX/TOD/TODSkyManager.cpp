@@ -12,6 +12,7 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInterface.h"
+#include "NiagaraComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTODSky, Log, All);
@@ -143,10 +144,19 @@ void ATODSkyManager::Tick(float DeltaSeconds)
 	UpdateWeatherApplication();
 }
 
+void ATODSkyManager::ComputeElevations(float TimeHours, float& OutSunElev, float& OutMoonElev)
+{
+	// sin((t-6)/12 * 2π) per hemisphere: 0 at 6h, +1 at noon, 0 at 18h, -1 at midnight.
+	const float SunPhase = FMath::DegreesToRadians((TimeHours - 6.0f) * (360.0f / 24.0f));
+	const float MoonPhase = FMath::DegreesToRadians((TimeHours - 18.0f) * (360.0f / 24.0f));
+	OutSunElev = FMath::Sin(SunPhase);
+	OutMoonElev = FMath::Sin(MoonPhase);
+}
+
 void ATODSkyManager::UpdateCelestials()
 {
 	const UTODSubsystem* TOD = GetTOD();
-	if (!TOD || !SunLight || !MoonLight)
+	if (!TOD)
 	{
 		return;
 	}
@@ -163,8 +173,18 @@ void ATODSkyManager::UpdateCelestials()
 		WeatherSkyScale = State.SkyLightScale;
 	}
 
-	const float SunElev = TOD->GetSunElevation01();
-	const float MoonElev = TOD->GetMoonElevation01();
+	float SunElev = 0.0f;
+	float MoonElev = 0.0f;
+	ComputeElevations(TOD->GetTimeOfDayHours(), SunElev, MoonElev);
+	ApplySunMoon(SunElev, MoonElev, WeatherSunScale, WeatherMoonScale, WeatherSkyScale);
+}
+
+void ATODSkyManager::ApplySunMoon(float SunElev, float MoonElev, float WeatherSunScale, float WeatherMoonScale, float WeatherSkyScale)
+{
+	if (!SunLight || !MoonLight)
+	{
+		return;
+	}
 
 	// Directional light shines along its rotated -X axis: negative pitch points
 	// the light down toward the ground, pitch 0 is horizontal (sunrise/sunset).
@@ -174,26 +194,30 @@ void ATODSkyManager::UpdateCelestials()
 	SunLight->SetRelativeRotation(FRotator(SunPitch, SunYawDegrees, 0.0f));
 	MoonLight->SetRelativeRotation(FRotator(MoonPitch, MoonYawDegrees, 0.0f));
 
-	const bool bSunUp = SunElev > 0.0f;
-	const bool bMoonUp = !bSunUp;
+	// Dawn/dusk crossfade instead of a hard switch: sun and moon swap the role of
+	// primary atmosphere light smoothly across the horizon band, which removes the
+	// classic "primary-light pop" at 06:00/18:00.
+	const float SunWeight = FMath::SmoothStep(-0.04f, 0.08f, SunElev);
+	const float MoonWeight = FMath::SmoothStep(-0.04f, 0.08f, MoonElev);
 
-	SunLight->SetVisibility(bSunUp);
-	MoonLight->SetVisibility(bMoonUp);
+	SunLight->SetVisibility(SunWeight > 0.01f);
+	MoonLight->SetVisibility(MoonWeight > 0.01f);
 
-	if (bSunUp)
+	if (SunWeight > 0.01f)
 	{
-		const float Daylight = FMath::Pow(SunElev, 0.6f);
-		SunLight->Intensity = SunPeakIntensity * Daylight * WeatherSunScale;
+		const float Daylight = FMath::Pow(FMath::Clamp(SunElev, 0.0f, 1.0f), 0.6f);
+		SunLight->Intensity = SunPeakIntensity * Daylight * SunWeight * WeatherSunScale;
 
 		// Warm the light as the sun approaches the horizon.
 		const float Warmth = 1.0f - FMath::Clamp(SunElev / 0.35f, 0.0f, 1.0f);
 		const FLinearColor SunColor = FLinearColor::LerpUsingHSV(SunZenithColor, SunHorizonColor, Warmth);
 		SunLight->LightColor = SunColor.ToFColor(/*bSRGB*/ false);
 	}
-	else
+
+	if (MoonWeight > 0.01f)
 	{
-		const float Moonlight = FMath::Pow(FMath::Max(MoonElev, 0.0f), 0.7f);
-		MoonLight->Intensity = MoonPeakIntensity * FMath::Max(Moonlight, 0.05f) * WeatherMoonScale;
+		const float Moonlight = FMath::Pow(FMath::Clamp(MoonElev, 0.0f, 1.0f), 0.7f);
+		MoonLight->Intensity = MoonPeakIntensity * FMath::Max(Moonlight, 0.05f) * MoonWeight * WeatherMoonScale;
 		MoonLight->LightColor = MoonColor.ToFColor(/*bSRGB*/ false);
 	}
 
@@ -201,6 +225,22 @@ void ATODSkyManager::UpdateCelestials()
 	{
 		SkyLight->Intensity = 1.0f * WeatherSkyScale;
 	}
+}
+
+void ATODSkyManager::RefreshSkyPreview()
+{
+	const UWorld* World = GetWorld();
+	if (World && World->IsGameWorld())
+	{
+		return; // runtime is driven by the subsystem tick
+	}
+
+	float SunElev = 0.0f;
+	float MoonElev = 0.0f;
+	ComputeElevations(PreviewTimeHours, SunElev, MoonElev);
+	ApplySunMoon(SunElev, MoonElev, 1.0f, 1.0f, 1.0f);
+
+	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f, moon elev %.2f."), PreviewTimeHours, SunElev, MoonElev);
 }
 
 void ATODSkyManager::UpdateWeatherApplication()
@@ -225,6 +265,16 @@ void ATODSkyManager::UpdateWeatherApplication()
 		const bool bCloudsWanted = bEnableVolumetricCloud && State.CloudCoverage > 0.02f;
 		VolumetricClouds->SetVisibility(bCloudsWanted);
 	}
+
+	// Precipitation systems read User.SpawnRateScale (0-1) inside DreamFX sources.
+	if (RainComponent)
+	{
+		RainComponent->SetVariableFloat(TEXT("User.SpawnRateScale"), State.RainIntensity);
+	}
+	if (SnowComponent)
+	{
+		SnowComponent->SetVariableFloat(TEXT("User.SpawnRateScale"), State.SnowIntensity);
+	}
 }
 
 UTODWeatherSubsystem* ATODSkyManager::GetTODWeather() const
@@ -244,11 +294,28 @@ void ATODSkyManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
-	if (PropertyChangedEvent.Property &&
-		PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(ATODSkyManager, bEnableVolumetricCloud) &&
-		VolumetricClouds)
+	if (!PropertyChangedEvent.Property)
+	{
+		return;
+	}
+
+	const FName Changed = PropertyChangedEvent.Property->GetFName();
+
+	if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, bEnableVolumetricCloud) && VolumetricClouds)
 	{
 		VolumetricClouds->SetVisibility(bEnableVolumetricCloud);
+	}
+	else if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, PreviewTimeHours))
+	{
+		// Scrubbing the slider re-lights the viewport without PIE.
+		RefreshSkyPreview();
+	}
+	else if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunYawDegrees) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonYawDegrees) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunPeakIntensity) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPeakIntensity))
+	{
+		RefreshSkyPreview();
 	}
 }
 #endif

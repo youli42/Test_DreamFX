@@ -6,6 +6,21 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "TODSubsystem.generated.h"
 
+/** Serializable clock state; games persist this alongside their save. */
+USTRUCT(BlueprintType)
+struct FTODTimeSnapshot
+{
+	GENERATED_BODY()
+
+	/** In-game hours [0, 24) at save time. */
+	UPROPERTY(BlueprintReadWrite, Category="TOD")
+	float TimeOfDayHours = 9.0f;
+
+	/** Real minutes one in-game day takes at save time. */
+	UPROPERTY(BlueprintReadWrite, Category="TOD")
+	float DayLengthMinutes = 4.0f;
+};
+
 /**
  * UTODSubsystem
  *
@@ -50,6 +65,21 @@ public:
 	/** In-game hours per real-time second while advancing. */
 	float GetTimeScale() const;
 
+	/** Set the pace of time: real minutes an in-game day takes (0 disables advancing). */
+	UFUNCTION(BlueprintCallable, Category="TOD")
+	void SetDayLengthMinutes(float MinutesPerDay);
+
+	UFUNCTION(BlueprintPure, Category="TOD")
+	float GetDayLengthMinutes() const;
+
+	/** Snapshot the clock for persistence (issue #10 "天气/时间可随存档保存"). */
+	UFUNCTION(BlueprintCallable, Category="TOD")
+	FTODTimeSnapshot GetTimeSnapshot() const;
+
+	/** Restore a snapshot taken with GetTimeSnapshot. */
+	UFUNCTION(BlueprintCallable, Category="TOD")
+	void ApplyTimeSnapshot(const FTODTimeSnapshot& Snapshot);
+
 	/** Console command handler: set the clock, e.g. `tod.SetTime 21.5`. */
 	static void HandleConsoleSetTime(const TArray<FString>& Args);
 
@@ -63,8 +93,9 @@ private:
 	/** In-game hours [0, 24). */
 	float TimeOfDayHours = 9.0f;
 
-	/** In-game hours advanced per real-time second (0.1 => a full day in 4 minutes). */
-	float TimeScaleHoursPerSecond = 0.1f;
+	/** Real minutes per in-game day; drives TimeScaleHoursPerSecond (24 / (60*minutes)). */
+	UPROPERTY(EditAnywhere, Category="TOD")
+	float DayLengthMinutes = 4.0f;
 
 	/** When false, AdvanceTime is a no-op (clock still settable). */
 	bool bAutoAdvance = true;
