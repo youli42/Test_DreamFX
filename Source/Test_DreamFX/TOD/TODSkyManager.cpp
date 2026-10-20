@@ -36,7 +36,7 @@ ATODSkyManager::ATODSkyManager()
 	SunLight->AtmosphereSunLightIndex = 0;
 	SunLight->bCastCloudShadows = true;
 	SunLight->Intensity = 8.0f;
-	SunLight->SetRelativeRotation(FRotator(45.0f, SunYawDegrees, 0.0f));
+	SunLight->SetRelativeRotation(FRotator(-45.0f, SunYawDegrees, 0.0f));
 
 	MoonLight = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("MoonLight"));
 	MoonLight->SetupAttachment(Root);
@@ -44,7 +44,7 @@ ATODSkyManager::ATODSkyManager()
 	MoonLight->AtmosphereSunLightIndex = 1;
 	MoonLight->bCastCloudShadows = true;
 	MoonLight->Intensity = 0.2f;
-	MoonLight->SetRelativeRotation(FRotator(45.0f, MoonYawDegrees, 0.0f));
+	MoonLight->SetRelativeRotation(FRotator(-45.0f, MoonYawDegrees, 0.0f));
 
 	SkyLight = CreateDefaultSubobject<USkyLightComponent>(TEXT("SkyLight"));
 	SkyLight->SetupAttachment(Root);
@@ -142,10 +142,10 @@ void ATODSkyManager::UpdateCelestials()
 	const float SunElev = TOD->GetSunElevation01();
 	const float MoonElev = TOD->GetMoonElevation01();
 
-	// Directional light shines along its rotated -X axis. Pitch +90 points the
-	// light straight down, pitch 0 is horizontal (sunrise/sunset).
-	const float SunPitch = FMath::Clamp(SunElev, -1.0f, 1.0f) * MaxCelestialPitch;
-	const float MoonPitch = FMath::Clamp(MoonElev, -1.0f, 1.0f) * MaxCelestialPitch;
+	// Directional light shines along its rotated -X axis: negative pitch points
+	// the light down toward the ground, pitch 0 is horizontal (sunrise/sunset).
+	const float SunPitch = -FMath::Clamp(SunElev, -1.0f, 1.0f) * MaxCelestialPitch;
+	const float MoonPitch = -FMath::Clamp(MoonElev, -1.0f, 1.0f) * MaxCelestialPitch;
 
 	SunLight->SetRelativeRotation(FRotator(SunPitch, SunYawDegrees, 0.0f));
 	MoonLight->SetRelativeRotation(FRotator(MoonPitch, MoonYawDegrees, 0.0f));
