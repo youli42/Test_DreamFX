@@ -17,9 +17,9 @@ DEFINE_LOG_CATEGORY_STATIC(LogTODSky, Log, All);
 
 namespace
 {
-	/** Engine default raymarched cloud material; may be missing in stripped builds. */
+	/** Engine default raymarched cloud material (UE 5.8); may be missing in stripped builds. */
 	constexpr TCHAR VolumetricCloudMaterialPath[] =
-		TEXT("/Engine/EngineSky/M_VolumetricCloud.M_VolumetricCloud");
+		TEXT("/Engine/EngineSky/m_SimpleVolumetricCloud_Inst.m_SimpleVolumetricCloud_Inst");
 }
 
 ATODSkyManager::ATODSkyManager()
@@ -90,15 +90,19 @@ void ATODSkyManager::ConfigureSky()
 
 	if (bEnableVolumetricCloud && VolumetricClouds)
 	{
-		// Attach the engine cloud material when available; degrade gracefully otherwise.
-		if (UMaterialInterface* CloudMaterial = LoadObject<UMaterialInterface>(nullptr, VolumetricCloudMaterialPath))
+		// The engine component ships a default cloud material; only patch in our own
+		// when that default is missing (e.g. stripped builds).
+		if (!VolumetricClouds->GetMaterial())
 		{
-			VolumetricClouds->SetMaterial(CloudMaterial);
-		}
-		else
-		{
-			UE_LOG(LogTODSky, Warning, TEXT("Volumetric cloud material '%s' not found; clouds disabled."), VolumetricCloudMaterialPath);
-			VolumetricClouds->SetVisibility(false);
+			if (UMaterialInterface* CloudMaterial = LoadObject<UMaterialInterface>(nullptr, VolumetricCloudMaterialPath))
+			{
+				VolumetricClouds->SetMaterial(CloudMaterial);
+			}
+			else
+			{
+				UE_LOG(LogTODSky, Warning, TEXT("Volumetric cloud material '%s' not found and the component has no default; clouds disabled."), VolumetricCloudMaterialPath);
+				VolumetricClouds->SetVisibility(false);
+			}
 		}
 	}
 
