@@ -59,6 +59,12 @@ public:
 	/** Sun/moon sine elevations [-1,1] for an in-game hour. Shared by runtime and preview. */
 	static void ComputeElevations(float TimeHours, float& OutSunElev, float& OutMoonElev);
 
+	/** Full celestial state: elevations plus azimuths. The sun's azimuth sweeps
+	 *  15°/game-hour (a full 360° per in-game day) so it *orbits* rather than
+	 *  returning the way it came; the moon rides the anti-solar point. */
+	static void ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, float MoonPhaseOffset,
+		float& OutSunElev, float& OutMoonElev, float& OutSunAzimuth, float& OutMoonAzimuth);
+
 	/** SkyLight real-time capture (dynamic ambient). Disable for fully static lighting studies. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Sky")
 	bool bSkyLightRealTimeCapture = true;
@@ -75,13 +81,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Moon", meta=(ClampMin="0.0"))
 	float MoonPeakIntensity = 0.4f;
 
-	/** Sun yaw (degrees). Shadow direction is constant across the day. */
+	/** Azimuth (degrees) of the sun at 06:00 (sunrise). From there the sun rotates
+	 *  360° per in-game day: due at +180° (sunset, 18:00), below the planet at midnight. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Sun")
-	float SunYawDegrees = -37.5f;
+	float SunRiseAzimuthDegrees = 90.0f;
 
-	/** Moon yaw (degrees). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Moon")
-	float MoonYawDegrees = 142.5f;
+	/** Moon azimuth offset (degrees) from the anti-solar point (0 = full moon each night). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Moon", meta=(ClampMin="-180.0", ClampMax="180.0"))
+	float MoonPhaseOffsetDegrees = 0.0f;
 
 	/** Maximum pitch magnitude applied to a celestial light (keeps away from gimbal lock). */
 	static constexpr float MaxCelestialPitch = 89.0f;
@@ -93,8 +100,9 @@ private:
 	/** Read clock from subsystem and drive sun/moon/skylight. */
 	void UpdateCelestials();
 
-	/** Position, fade and color the two celestial lights from elevations (crossfade at the horizon). */
-	void ApplySunMoon(float SunElev, float MoonElev, float WeatherSunScale, float WeatherMoonScale, float WeatherSkyScale);
+	/** Position, fade and color the two celestial lights for an in-game hour
+	 *  (azimuth orbit + horizon-crossfade at dawn/dusk). */
+	void ApplySunMoon(float TimeHours, float WeatherSunScale, float WeatherMoonScale, float WeatherSkyScale);
 
 	/** Apply blended weather to fog, cloud layer and light multipliers. */
 	void UpdateWeatherApplication();

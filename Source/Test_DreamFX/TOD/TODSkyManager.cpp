@@ -38,7 +38,6 @@ ATODSkyManager::ATODSkyManager()
 	SunLight->AtmosphereSunLightIndex = 0;
 	SunLight->bCastCloudShadows = true;
 	SunLight->Intensity = 8.0f;
-	SunLight->SetRelativeRotation(FRotator(-45.0f, SunYawDegrees, 0.0f));
 
 	MoonLight = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("MoonLight"));
 	MoonLight->SetupAttachment(Root);
@@ -46,7 +45,15 @@ ATODSkyManager::ATODSkyManager()
 	MoonLight->AtmosphereSunLightIndex = 1;
 	MoonLight->bCastCloudShadows = true;
 	MoonLight->Intensity = 0.2f;
-	MoonLight->SetRelativeRotation(FRotator(-45.0f, MoonYawDegrees, 0.0f));
+
+	// Static CDO pose at the default clock (9h), consistent with the daily orbit model.
+	{
+		float InitSunElev = 0.f, InitMoonElev = 0.f, InitSunAz = 0.f, InitMoonAz = 0.f;
+		ComputeSunMoonState(9.0f, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees,
+			InitSunElev, InitMoonElev, InitSunAz, InitMoonAz);
+		SunLight->SetRelativeRotation(FRotator(-InitSunElev * MaxCelestialPitch, InitSunAz, 0.0f));
+		MoonLight->SetRelativeRotation(FRotator(-InitMoonElev * MaxCelestialPitch, InitMoonAz, 0.0f));
+	}
 	// Editor-state policy: only ONE celestial light is ever visible. UpdateCelestials()
 	// toggles visibility exclusively (sun XOR moon) while running; hiding the moon here
 	// guarantees no dual-primary-light contest in the un-ticked editor world either.
@@ -153,6 +160,18 @@ void ATODSkyManager::ComputeElevations(float TimeHours, float& OutSunElev, float
 	OutMoonElev = FMath::Sin(MoonPhase);
 }
 
+void ATODSkyManager::ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, float MoonPhaseOffset,
+	float& OutSunElev, float& OutMoonElev, float& OutSunAzimuth, float& OutMoonAzimuth)
+{
+	ComputeElevations(TimeHours, OutSunElev, OutMoonElev);
+
+	// The sun *orbits* the planet: its azimuth sweeps a full 360° per in-game day
+	// (15°/hour) starting at the rise azimuth, so it sets opposite where it rose
+	// instead of retracing. The moon rides the anti-solar point plus a phase offset.
+	OutSunAzimuth = SunRiseAzimuth + (TimeHours - 6.0f) * 15.0f;
+	OutMoonAzimuth = OutSunAzimuth + 180.0f + MoonPhaseOffset;
+}
+
 void ATODSkyManager::UpdateCelestials()
 {
 	const UTODSubsystem* TOD = GetTOD();
@@ -173,26 +192,30 @@ void ATODSkyManager::UpdateCelestials()
 		WeatherSkyScale = State.SkyLightScale;
 	}
 
-	float SunElev = 0.0f;
-	float MoonElev = 0.0f;
-	ComputeElevations(TOD->GetTimeOfDayHours(), SunElev, MoonElev);
-	ApplySunMoon(SunElev, MoonElev, WeatherSunScale, WeatherMoonScale, WeatherSkyScale);
+	ApplySunMoon(TOD->GetTimeOfDayHours(), WeatherSunScale, WeatherMoonScale, WeatherSkyScale);
 }
 
-void ATODSkyManager::ApplySunMoon(float SunElev, float MoonElev, float WeatherSunScale, float WeatherMoonScale, float WeatherSkyScale)
+void ATODSkyManager::ApplySunMoon(float TimeHours, float WeatherSunScale, float WeatherMoonScale, float WeatherSkyScale)
 {
 	if (!SunLight || !MoonLight)
 	{
 		return;
 	}
 
+	float SunElev = 0.0f;
+	float MoonElev = 0.0f;
+	float SunAzimuth = 0.0f;
+	float MoonAzimuth = 0.0f;
+	ComputeSunMoonState(TimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees,
+		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
+
 	// Directional light shines along its rotated -X axis: negative pitch points
 	// the light down toward the ground, pitch 0 is horizontal (sunrise/sunset).
 	const float SunPitch = -FMath::Clamp(SunElev, -1.0f, 1.0f) * MaxCelestialPitch;
 	const float MoonPitch = -FMath::Clamp(MoonElev, -1.0f, 1.0f) * MaxCelestialPitch;
 
-	SunLight->SetRelativeRotation(FRotator(SunPitch, SunYawDegrees, 0.0f));
-	MoonLight->SetRelativeRotation(FRotator(MoonPitch, MoonYawDegrees, 0.0f));
+	SunLight->SetRelativeRotation(FRotator(SunPitch, SunAzimuth, 0.0f));
+	MoonLight->SetRelativeRotation(FRotator(MoonPitch, MoonAzimuth, 0.0f));
 
 	// Dawn/dusk crossfade instead of a hard switch: sun and moon swap the role of
 	// primary atmosphere light smoothly across the horizon band, which removes the
@@ -237,10 +260,14 @@ void ATODSkyManager::RefreshSkyPreview()
 
 	float SunElev = 0.0f;
 	float MoonElev = 0.0f;
-	ComputeElevations(PreviewTimeHours, SunElev, MoonElev);
-	ApplySunMoon(SunElev, MoonElev, 1.0f, 1.0f, 1.0f);
+	float SunAzimuth = 0.0f;
+	float MoonAzimuth = 0.0f;
+	ComputeSunMoonState(PreviewTimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees,
+		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
+	ApplySunMoon(PreviewTimeHours, 1.0f, 1.0f, 1.0f);
 
-	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f, moon elev %.2f."), PreviewTimeHours, SunElev, MoonElev);
+	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f @az %.0f, moon elev %.2f @az %.0f."),
+		PreviewTimeHours, SunElev, SunAzimuth, MoonElev, MoonAzimuth);
 }
 
 void ATODSkyManager::UpdateWeatherApplication()
@@ -310,8 +337,8 @@ void ATODSkyManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 		// Scrubbing the slider re-lights the viewport without PIE.
 		RefreshSkyPreview();
 	}
-	else if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunYawDegrees) ||
-		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonYawDegrees) ||
+	else if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunRiseAzimuthDegrees) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPhaseOffsetDegrees) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunPeakIntensity) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPeakIntensity))
 	{
