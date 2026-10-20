@@ -29,11 +29,23 @@ pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build -All -Force   # 全量
 
 ## 现有系统
 
-| 系统 | 说明 |
-|---|---|
-| `NS_TOD_DustMotes` | 环境浮尘:大体积低密度慢漂微粒,日间逆光氛围。M2 起可由天气状态机经用户参数调密度 |
+| 系统 | 说明 | 状态 |
+|---|---|---|
+| `NS_TOD_DustMotes` | 环境浮尘:大体积低密度慢漂微粒,日间逆光氛围 | 构建 OK |
+| `NS_TOD_Rain` | 雨丝:固定盒雨幕,`User.SpawnRateScale` 由天气 RainIntensity 驱动 | **搁置**(见下) |
+| `NS_TOD_Snow` | 雪花:Curl 侧摆飘落,`User.SpawnRateScale` 由天气 SnowIntensity 驱动 | **搁置**(同 Rain) |
+
+## 已知问题:SpawnRate 型发射器不渲染(2026-10-20 诊断,issue #11)
+
+同工程对照实验证据:
+
+- **Burst 路径正常**:NS_Boids(SpawnBurst_Instantaneous)在同一张 L_TOD_Test、同一 -game 进程里肉眼可见(石阵上方黑色鸟群)。
+- **SpawnRate 路径异常**:NS_TOD_Rain 穷举变量后仍不渲染——CPU/GPU 模拟、字面量/hlsl 输入、粒子放大至 8×140cm、固定包围盒 + QualityLevelMask 均已尝试;-game 晴天/雷雨两帧的像素统计(垂直/水平边缘计数)无显著差异。Burst 对照被 WarmupTime 3s > 粒子寿命 2.2s 清空,不可判读(记录教训:诊断用 burst 需寿命 > warmup)。
+- 场景接线、C++ 天气驱动(`ATODSkyManager` 每帧写 `User.SpawnRateScale`)均验证过无误;疑为 DreamFX 生成 SpawnRate 型发射器的资产缺陷,待上游修复。
+- **修复后点亮路径零改动**:`dfx.ps1 build -All -Force` 重跑即可,地图/接线/天气协议都已就位。
 
 ## 与 C++ 的关系
 
-- 时间与天体驱动在 `Source/Test_DreamFX/TOD/`(`UTODSubsystem` 世界时钟 + `ATODSkyManager` 光照装备)。
-- 本目录只放粒子表现;天气状态机(后续里程碑)通过用户参数(如 `User.SpawnRate`)驱动这些系统。
+- 时间与天体驱动在 `Source/Test_DreamFX/TOD/`(`UTODSubsystem` 世界时钟 + `UTODWeatherSubsystem` 天气状态机 + `ATODSkyManager` 光照装备)。
+- 本目录只放粒子表现;天气状态机经用户参数 `User.SpawnRateScale`(0-1)驱动这些系统,
+  雨=`RainIntensity`、雪=`SnowIntensity`(C++ 每帧写入,晴天下即为 0——这是设计行为)。

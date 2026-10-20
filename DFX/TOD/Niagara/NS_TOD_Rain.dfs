@@ -1,0 +1,96 @@
+// TOD 雨 —— 天气驱动的雨幕(M3)。
+// 构建: pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/TOD/Niagara/NS_TOD_Rain.dfs -Force
+// 资产: /Game/TOD/Niagara/NS_TOD_Rain
+//
+// 设计: 固定大区域(组件为中心 50m x 50m x 18m 盒)匀速下落雨丝, GPU 模拟。
+//   User.SpawnRateScale (0-1) 由 ATODSkyManager 每帧写入(= 天气 RainIntensity),
+//   生成率 = BaseSpawnRate x SpawnRateScale, 0 时自动无雨。
+//   拉丝: 均匀出生尺寸很小, ParticleUpdate 里按 User 拉长 Y(SpriteSize.xy), 相机朝向面片。
+//   雨滴恒速(初速 -FallSpeed, 无重力无阻力), 生命周期 = 盒高/落速, 落地即自然消亡。
+//   室内遮挡(Kill 遮挡体积)与相机包裹盒在 M3.5 完善: 演示地图相机不移动, 固定区域足够。
+System(Name="TOD/Niagara/NS_TOD_Rain", Root="Game")
+{
+    Settings = {
+        WarmupTime  = 3.0;   // 预热出连续雨幕
+        FixedBounds = box(-2600, -2600, -200, 2600, 2600, 1900);
+    }
+
+    Properties = {
+        Group("生成") {
+            float SpawnRateScale = 1.0 [ Description="雨强 0-1, 由天气子系统每帧写入(RainIntensity)" ];
+            float AreaRadius     = 2500.0 [ Description="雨幕盒半边长(cm)" ];
+            float Height         = 1800.0 [ Description="雨幕盒高(cm), 雨滴出生高度范围" ];
+        }
+        Group("雨滴") {
+            float BaseSpawnRate = 500.0  [ Description="雨强 1.0 时的每秒生成数" ];
+            float FallSpeed     = 900.0  [ Description="下落速度(cm/s)" ];
+            float Width         = 8.0    [ Description="雨丝横宽(cm);36m 外 2cm 只有 0.27px,看不见" ];
+            float LengthMin     = 60.0   [ Description="雨丝最短(cm)" ];
+            float LengthMax     = 140.0  [ Description="雨丝最长(cm)" ];
+        }
+    }
+
+    Emitter Rain
+    {
+        Settings = {
+            // CPU 模拟: 编辑器视口与 -game 都可靠;5000 常驻粒子在 PC 预算内。
+            PreAllocationCount = 5000;
+            // 固定包围盒: 空 bounds 会被视锥整体剔除(编译成功但永远不渲染)。
+            CalculateBoundsMode = Fixed;
+            FixedBounds = box(-2600, -2600, -200, 2600, 2600, 1900);
+            QualityLevelMask = 31;
+        }
+
+        EmitterUpdate = {
+            // 显式生命周期(与 Burst 型 Boids 一致), 排除可扩展性裁剪等空参默认干扰。
+            EmitterState(
+                LifeCycleMode    = Self,
+                LoopBehavior     = Infinite,
+                InactiveResponse = Complete,
+                ScalabilityMode  = System
+            );
+            SpawnRate(SpawnRate = hlsl { User.BaseSpawnRate * User.SpawnRateScale });
+        }
+
+        ParticleSpawn = {
+            // 出生盒: 以组件为中心, 高度集中在盒顶(让雨从"天上"落下来)
+            // 字面量版本: 排查 hlsl 表达式在 Spawn 模块求值问题;验证后换回 User 版本。
+            Spawn/Location/BoxLocation(
+                BoxSize   = (5000.0, 5000.0, 1800.0),
+                BoxOffset = (0.0, 0.0, 900.0)
+            );
+
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode = DirectSet,
+                Lifetime     = 2.2,
+                ColorMode    = DirectSet,
+                Color        = (0.45, 0.50, 0.58, 0.60),
+                SpriteSizeMode = Uniform,
+                UniformSpriteSize  = 8.0
+            );
+
+            AddVelocity(Velocity = (0.0, 0.0, -900.0));
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+
+            // 初速在 Spawn 里由 AddVelocity 写入;这里 Solve 一次让速度生效(无力则恒速下落)。
+            SolveForcesAndVelocity();
+
+            // 拉丝: 屏幕竖直方向拉长, 长度按出生位置伪随机
+            Vector2 Particles.SpriteSize = hlsl {
+                float2(User.Width * 1.6,
+                       User.LengthMin + (User.LengthMax - User.LengthMin) * frac(Particles.Position.x * 0.137 + Particles.Position.y * 0.311))
+            };
+        }
+
+        SpriteRenderer Streaks
+        {
+            FacingMode = FaceCamera;
+
+            Bind Color      -> Particles.Color;
+            Bind SpriteSize -> Particles.SpriteSize;
+        }
+    }
+}

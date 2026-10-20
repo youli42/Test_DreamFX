@@ -1,0 +1,97 @@
+// TOD 雪 —— 天气驱动的降雪(M3)。
+// 构建: pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build DFX/TOD/Niagara/NS_TOD_Snow.dfs -Force
+// 资产: /Game/TOD/Niagara/NS_TOD_Snow
+//
+// 设计: 与 NS_TOD_Rain 同一套 User 参数协议(SpawnRateScale 0-1 由天气 SnowIntensity 驱动)。
+//   慢速下落 + Curl 噪声侧摆, 雪片大小随生命周期两端淡入淡出, 无重力(末端速度恒定)。
+System(Name="TOD/Niagara/NS_TOD_Snow", Root="Game")
+{
+    Settings = {
+        WarmupTime  = 8.0;   // 雪花慢, 预热时间长一些
+        FixedBounds = box(-2600, -2600, -200, 2600, 2600, 1900);
+    }
+
+    Properties = {
+        Group("生成") {
+            float SpawnRateScale = 1.0 [ Description="雪强 0-1, 由天气子系统每帧写入(SnowIntensity)" ];
+            float AreaRadius     = 2500.0 [ Description="雪幕盒半边长(cm)" ];
+            float Height         = 1800.0 [ Description="雪幕盒高(cm)" ];
+        }
+        Group("雪花") {
+            float BaseSpawnRate = 380.0 [ Description="雪强 1.0 时的每秒生成数" ];
+            float FallSpeed     = 150.0 [ Description="下落速度(cm/s)" ];
+            float SizeMin       = 3.0   [ Description="雪片最小(cm)" ];
+            float SizeMax       = 8.0   [ Description="雪片最大(cm)" ];
+        }
+    }
+
+    Emitter Snowfall
+    {
+        Settings = {
+            // CPU 模拟: 编辑器视口与 -game 都可靠。
+            PreAllocationCount = 4000;
+            // 固定包围盒: 防 bounds 空剔除。
+            CalculateBoundsMode = Fixed;
+            FixedBounds = box(-2600, -2600, -200, 2600, 2600, 1900);
+            QualityLevelMask = 31;
+        }
+
+        EmitterUpdate = {
+            EmitterState(
+                LifeCycleMode    = Self,
+                LoopBehavior     = Infinite,
+                InactiveResponse = Complete,
+                ScalabilityMode  = System
+            );
+            SpawnRate(SpawnRate = hlsl { User.BaseSpawnRate * User.SpawnRateScale });
+        }
+
+        ParticleSpawn = {
+            Spawn/Location/BoxLocation(
+                BoxSize   = hlsl { float3(User.AreaRadius * 2.0, User.AreaRadius * 2.0, User.Height) },
+                BoxOffset = hlsl { float3(0.0, 0.0, User.Height * 0.5) }
+            );
+
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode = DirectSet,
+                Lifetime     = hlsl { (User.Height + 200.0) / User.FallSpeed },
+                ColorMode    = DirectSet,
+                Color        = (0.94, 0.95, 1.00, 0.85),
+                SpriteSizeMode = RandomUniform,
+                UniformSpriteSizeMin = User.SizeMin,
+                UniformSpriteSizeMax = User.SizeMax
+            );
+
+            AddVelocity(Velocity = hlsl { float3(0.0, 0.0, -User.FallSpeed) });
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+
+            // 侧摆飘落
+            Update/Forces/V2/CurlNoiseForce(
+                NoiseStrength  = 30.0,
+                NoiseFrequency = 0.06,
+                PanNoise       = true,
+                PanNoiseField  = (0, 0, 8.0)
+            );
+            Drag(Drag = 0.8);
+            SolveForcesAndVelocity();
+
+            Color Particles.Color = hlsl {
+                float4(Particles.Color.rgb,
+                       Particles.Color.a
+                           * saturate(1.5 * Particles.NormalizedAge)
+                           * saturate(1.5 * (1.0 - Particles.NormalizedAge)))
+            };
+        }
+
+        SpriteRenderer Flakes
+        {
+            FacingMode = FaceCamera;
+
+            Bind Color      -> Particles.Color;
+            Bind SpriteSize -> Particles.SpriteSize;
+        }
+    }
+}

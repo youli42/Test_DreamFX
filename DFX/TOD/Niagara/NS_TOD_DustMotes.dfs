@@ -17,7 +17,7 @@ System(Name="TOD/Niagara/NS_TOD_DustMotes", Root="Game")
         Settings = {
             SimTarget          = GPU;
             AllocationMode     = Fixed;
-            PreAllocationCount = 300;
+            PreAllocationCount = 800;   // 45/s x 14s 寿命峰值约 630,300 会溢出(max particle count 警告)
             FixedBounds        = box(-400, -400, -100, 400, 400, 500);
         }
 
