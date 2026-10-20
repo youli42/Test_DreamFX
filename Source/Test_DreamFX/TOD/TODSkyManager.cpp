@@ -46,10 +46,10 @@ ATODSkyManager::ATODSkyManager()
 	MoonLight->bCastCloudShadows = true;
 	MoonLight->Intensity = 0.2f;
 
-	// Static CDO pose at the default clock (9h), consistent with the daily orbit model.
+	// Static CDO pose at the default clock (9h), consistent with the tilted-orbit model.
 	{
 		float InitSunElev = 0.f, InitMoonElev = 0.f, InitSunAz = 0.f, InitMoonAz = 0.f;
-		ComputeSunMoonState(9.0f, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees,
+		ComputeSunMoonState(9.0f, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 			InitSunElev, InitMoonElev, InitSunAz, InitMoonAz);
 		SunLight->SetRelativeRotation(FRotator(-InitSunElev * MaxCelestialPitch, InitSunAz, 0.0f));
 		MoonLight->SetRelativeRotation(FRotator(-InitMoonElev * MaxCelestialPitch, InitMoonAz, 0.0f));
@@ -151,24 +151,24 @@ void ATODSkyManager::Tick(float DeltaSeconds)
 	UpdateWeatherApplication();
 }
 
-void ATODSkyManager::ComputeElevations(float TimeHours, float& OutSunElev, float& OutMoonElev)
-{
-	// sin((t-6)/12 * 2π) per hemisphere: 0 at 6h, +1 at noon, 0 at 18h, -1 at midnight.
-	const float SunPhase = FMath::DegreesToRadians((TimeHours - 6.0f) * (360.0f / 24.0f));
-	const float MoonPhase = FMath::DegreesToRadians((TimeHours - 18.0f) * (360.0f / 24.0f));
-	OutSunElev = FMath::Sin(SunPhase);
-	OutMoonElev = FMath::Sin(MoonPhase);
-}
-
-void ATODSkyManager::ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, float MoonPhaseOffset,
+void ATODSkyManager::ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, float MoonPhaseOffset, float SunTilt,
 	float& OutSunElev, float& OutMoonElev, float& OutSunAzimuth, float& OutMoonAzimuth)
 {
-	ComputeElevations(TimeHours, OutSunElev, OutMoonElev);
+	// Tilted great circle, like a real mid-latitude sun track:
+	//   v(H) = (cos H, sin H * cos T, sin H * sin T),  H = (t - 6) * 15°,  T = tilt.
+	// H = 0 sits on the horizon at the rise azimuth, noon culminates at altitude = Tilt
+	// (below the zenith, so shadows sweep instead of collapsing and flipping), H = 180
+	// sets due opposite. Elevation is returned as sine-of-altitude.
+	const float H = FMath::DegreesToRadians((TimeHours - 6.0f) * 15.0f);
+	const float T = FMath::DegreesToRadians(FMath::Clamp(SunTilt, 5.0f, 89.5f));
 
-	// The sun *orbits* the planet: its azimuth sweeps a full 360° per in-game day
-	// (15°/hour) starting at the rise azimuth, so it sets opposite where it rose
-	// instead of retracing. The moon rides the anti-solar point plus a phase offset.
-	OutSunAzimuth = SunRiseAzimuth + (TimeHours - 6.0f) * 15.0f;
+	const float HorizonX = FMath::Cos(H);
+	const float HorizonY = FMath::Sin(H) * FMath::Cos(T);
+	OutSunElev = FMath::Sin(H) * FMath::Sin(T);
+	OutSunAzimuth = SunRiseAzimuth + FMath::RadiansToDegrees(FMath::Atan2(HorizonY, HorizonX));
+
+	// Moon = anti-solar point on the same circle (plus phase offset).
+	OutMoonElev = -OutSunElev;
 	OutMoonAzimuth = OutSunAzimuth + 180.0f + MoonPhaseOffset;
 }
 
@@ -206,7 +206,7 @@ void ATODSkyManager::ApplySunMoon(float TimeHours, float WeatherSunScale, float 
 	float MoonElev = 0.0f;
 	float SunAzimuth = 0.0f;
 	float MoonAzimuth = 0.0f;
-	ComputeSunMoonState(TimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees,
+	ComputeSunMoonState(TimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
 
 	// Directional light shines along its rotated -X axis: negative pitch points
@@ -262,7 +262,7 @@ void ATODSkyManager::RefreshSkyPreview()
 	float MoonElev = 0.0f;
 	float SunAzimuth = 0.0f;
 	float MoonAzimuth = 0.0f;
-	ComputeSunMoonState(PreviewTimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees,
+	ComputeSunMoonState(PreviewTimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
 	ApplySunMoon(PreviewTimeHours, 1.0f, 1.0f, 1.0f);
 
@@ -338,6 +338,7 @@ void ATODSkyManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 		RefreshSkyPreview();
 	}
 	else if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunRiseAzimuthDegrees) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunTiltDegrees) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPhaseOffsetDegrees) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunPeakIntensity) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPeakIntensity))

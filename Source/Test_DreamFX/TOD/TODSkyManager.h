@@ -56,13 +56,14 @@ public:
 	UFUNCTION(CallInEditor, BlueprintCallable, Category="TOD|Time")
 	void RefreshSkyPreview();
 
-	/** Sun/moon sine elevations [-1,1] for an in-game hour. Shared by runtime and preview. */
-	static void ComputeElevations(float TimeHours, float& OutSunElev, float& OutMoonElev);
-
-	/** Full celestial state: elevations plus azimuths. The sun's azimuth sweeps
-	 *  15°/game-hour (a full 360° per in-game day) so it *orbits* rather than
-	 *  returning the way it came; the moon rides the anti-solar point. */
-	static void ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, float MoonPhaseOffset,
+	/** Full celestial state on a TILTED GREAT CIRCLE (a real mid-latitude sun track):
+	 *  v(H) = (cos H, sin H·cos T, sin H·sin T) with H = (t-6)·15°, T = sun tilt.
+	 *  Sunrise sits on the horizon at the rise azimuth, the sun *arcs* across the sky
+	 *  culminating at altitude = Tilt at noon (never crossing the zenith, so shadows
+	 *  sweep smoothly instead of collapsing and flipping), and it sets due opposite.
+	 *  Out*Elev are sine-of-altitude values [-1,1]; azimuths are degrees.
+	 *  The moon rides the anti-solar point on the same circle (+phase offset). */
+	static void ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, float MoonPhaseOffset, float SunTilt,
 		float& OutSunElev, float& OutMoonElev, float& OutSunAzimuth, float& OutMoonAzimuth);
 
 	/** SkyLight real-time capture (dynamic ambient). Disable for fully static lighting studies. */
@@ -86,12 +87,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Sun")
 	float SunRiseAzimuthDegrees = 90.0f;
 
+	/** Max sun altitude at noon (degrees of the tilted orbit plane). 60° gives a
+	 *  mid-latitude arc: the sun visibly travels across the sky; shadows never vanish.
+	 *  Near 90° the sun would cross the zenith and shadows flip at noon (avoid). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Sun", meta=(ClampMin="20.0", ClampMax="85.0"))
+	float SunTiltDegrees = 60.0f;
+
 	/** Moon azimuth offset (degrees) from the anti-solar point (0 = full moon each night). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|Moon", meta=(ClampMin="-180.0", ClampMax="180.0"))
 	float MoonPhaseOffsetDegrees = 0.0f;
 
 	/** Maximum pitch magnitude applied to a celestial light (keeps away from gimbal lock). */
 	static constexpr float MaxCelestialPitch = 89.0f;
+
+	/** Tilt used by consumers that query elevations without a placed sky rig (e.g. UTODSubsystem). */
+	static constexpr float DefaultSunTiltDegrees = 60.0f;
 
 private:
 	/** Cache subsystem, configure light indices and sky capture. */

@@ -54,11 +54,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category="TOD")
 	void SetTimeOfDayHours(float InHours);
 
-	/** Normalized sun elevation of the current time: sin curve, 1 at noon, 0 at sunrise/sunset, -1 at midnight. */
+	/** Sine of sun altitude on the tilted orbit (see ATODSkyManager): 0 at sunrise/sunset, peaks at sin(SunTilt) ≈ 0.87 at noon. */
 	UFUNCTION(BlueprintPure, Category="TOD")
 	float GetSunElevation01() const;
 
-	/** Normalized moon elevation of the current time. */
+	/** Sine of the moon's altitude (anti-solar point on the same tilted circle). */
 	UFUNCTION(BlueprintPure, Category="TOD")
 	float GetMoonElevation01() const;
 

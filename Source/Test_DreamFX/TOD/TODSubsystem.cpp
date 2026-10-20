@@ -2,6 +2,8 @@
 
 #include "TODSubsystem.h"
 
+#include "TODSkyManager.h"
+
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 
@@ -106,15 +108,26 @@ void UTODSubsystem::ApplyTimeSnapshot(const FTODTimeSnapshot& Snapshot)
 
 float UTODSubsystem::GetSunElevation01() const
 {
-	// sin((t-6)/12 * PI): 0 at 6h, +1 at 12h, 0 at 18h, -1 at 0h.
-	const float Phase = FMath::DegreesToRadians((TimeOfDayHours - 6.0f) * (360.0f / 24.0f));
-	return FMath::Sin(Phase);
+	// Single source of truth: delegate to the sky rig's tilted-orbit model.
+	// Peaks at sin(noon altitude) < 1 — the sun never crosses the zenith.
+	float SunElev = 0.0f;
+	float MoonElev = 0.0f;
+	float SunAz = 0.0f;
+	float MoonAz = 0.0f;
+	ATODSkyManager::ComputeSunMoonState(TimeOfDayHours, 0.0f, 0.0f, ATODSkyManager::DefaultSunTiltDegrees,
+		SunElev, MoonElev, SunAz, MoonAz);
+	return SunElev;
 }
 
 float UTODSubsystem::GetMoonElevation01() const
 {
-	const float Phase = FMath::DegreesToRadians((TimeOfDayHours - 18.0f) * (360.0f / 24.0f));
-	return FMath::Sin(Phase);
+	float SunElev = 0.0f;
+	float MoonElev = 0.0f;
+	float SunAz = 0.0f;
+	float MoonAz = 0.0f;
+	ATODSkyManager::ComputeSunMoonState(TimeOfDayHours, 0.0f, 0.0f, ATODSkyManager::DefaultSunTiltDegrees,
+		SunElev, MoonElev, SunAz, MoonAz);
+	return MoonElev;
 }
 
 UTODSubsystem* UTODSubsystem::GetForConsole()
