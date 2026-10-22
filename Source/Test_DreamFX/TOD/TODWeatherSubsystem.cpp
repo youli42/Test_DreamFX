@@ -2,6 +2,8 @@
 
 #include "TODWeatherSubsystem.h"
 
+#include "TODSubsystem.h"
+
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
@@ -31,6 +33,63 @@ namespace TODWeatherCVars
 		FConsoleCommandDelegate::CreateStatic(&UTODWeatherSubsystem::HandleConsoleWeatherInfo));
 }
 
+namespace
+{
+	float LerpFloat(float From, float To, float Alpha)
+	{
+		return FMath::Lerp(From, To, Alpha);
+	}
+
+	FTODWeatherProfileData MakeFallbackProfile(FName InName, float InWeight, float Cloud, float Fog, float Wind,
+		float Wet, float SnowGround, float Sun, float Moon, float Sky, float Rain, float Snow, bool bLightning)
+	{
+		FTODWeatherProfileData Data;
+		Data.DataVersion = 1;
+		Data.Identity.Name = InName;
+		Data.Identity.ScheduleWeight = InWeight;
+		Data.Identity.bLightning = bLightning;
+
+		Data.Surface.bEnabled = true;
+		Data.Surface.Wetness = FTODWeatherCurve::Constant(Wet);
+		Data.Surface.SnowAmount = FTODWeatherCurve::Constant(SnowGround);
+
+		Data.Fog.bEnabled = Fog > UE_KINDA_SMALL_NUMBER;
+		Data.Fog.Density = FTODWeatherCurve::Constant(Fog);
+
+		Data.DirectionalLight.bEnabled = true;
+		Data.DirectionalLight.SunIntensityScale = FTODWeatherCurve::Constant(Sun);
+		Data.DirectionalLight.MoonIntensityScale = FTODWeatherCurve::Constant(Moon);
+
+		Data.SkyLight.bEnabled = true;
+		Data.SkyLight.IntensityScale = FTODWeatherCurve::Constant(Sky);
+
+		Data.Wind.bEnabled = true;
+		Data.Wind.Strength = FTODWeatherCurve::Constant(Wind);
+
+		Data.CloudLayer.bEnabled = true;
+		Data.CloudLayer.Coverage = FTODWeatherCurve::Constant(Cloud);
+
+		if (Rain > UE_KINDA_SMALL_NUMBER)
+		{
+			Data.WeatherEffects.bEnabled = true;
+			FTODWeatherEffect& Effect = Data.WeatherEffects.Effects.Add(TEXT("Rain"));
+			Effect.System = TSoftObjectPtr<UNiagaraSystem>(FSoftObjectPath(TODWeatherDefaults::RainSystemPath));
+			Effect.Intensity = FTODWeatherCurve::Constant(Rain);
+			Effect.RelativeLocation = FVector(0.0f, 0.0f, 1200.0f);
+		}
+		if (Snow > UE_KINDA_SMALL_NUMBER)
+		{
+			Data.WeatherEffects.bEnabled = true;
+			FTODWeatherEffect& Effect = Data.WeatherEffects.Effects.Add(TEXT("Snow"));
+			Effect.System = TSoftObjectPtr<UNiagaraSystem>(FSoftObjectPath(TODWeatherDefaults::SnowSystemPath));
+			Effect.Intensity = FTODWeatherCurve::Constant(Snow);
+			Effect.RelativeLocation = FVector(0.0f, 0.0f, 1200.0f);
+		}
+
+		return Data;
+	}
+}
+
 bool UTODWeatherSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
 	if (const UWorld* World = Cast<UWorld>(Outer))
@@ -45,31 +104,35 @@ void UTODWeatherSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
-	// Issue #12: one weather = one UTODWeatherProfile asset. Built-in C++
-	// presets are only the fallback for when no assets were authored yet.
+	// One weather = one UTODWeatherProfile asset under /Game/TOD/Profiles.
+	// Code-built fallbacks only kick in when no asset was authored yet.
 	if (!DiscoverProfileAssets())
 	{
-		UE_LOG(LogTODWeather, Warning, TEXT("No UTODWeatherProfile assets discovered under /Game/TOD/Profiles - falling back to built-in C++ presets."));
-		RegisterDefaultPresets();
+		UE_LOG(LogTODWeather, Warning, TEXT("No UTODWeatherProfile assets under /Game/TOD/Profiles - falling back to built-in curve profiles."));
+		RegisterFallbackProfiles();
 	}
 
-	// Seed the blended state from the first preset so frame 0 is coherent.
-	const FTODWeatherPreset* First = Presets.Find(TEXT("ClearSky"));
-	TargetPreset = First ? *First : FTODWeatherPreset();
-	Current.CurrentPreset = TargetPreset.Name;
-	Current.CloudCoverage = TargetPreset.CloudCoverage;
-	Current.FogDensity = TargetPreset.FogDensity;
-	Current.WindStrength = TargetPreset.WindStrength;
-	Current.Wetness = TargetPreset.Wetness;
-	Current.SnowAmount = TargetPreset.SnowAmount;
-	Current.SunIntensityScale = TargetPreset.SunIntensityScale;
-	Current.MoonIntensityScale = TargetPreset.MoonIntensityScale;
-	Current.SkyLightScale = TargetPreset.SkyLightScale;
-	Current.bLightning = TargetPreset.bLightning;
-	Current.RainIntensity = TargetPreset.RainIntensity;
-	Current.SnowIntensity = TargetPreset.SnowIntensity;
+	FName StartName = DefaultWeatherName;
+	if (!Profiles.Contains(StartName))
+	{
+		for (const TPair<FName, FTODWeatherProfileData>& Pair : Profiles)
+		{
+			StartName = Pair.Key;
+			break;
+		}
+	}
+	if (const FTODWeatherProfileData* Found = Profiles.Find(StartName))
+	{
+		TargetData = *Found;
+	}
+	else
+	{
+		UE_LOG(LogTODWeather, Warning, TEXT("Weather subsystem has no registered presets; the sky stays neutral."));
+	}
 
-	UE_LOG(LogTODWeather, Log, TEXT("TODWeatherSubsystem initialized. %d presets, starting '%s'."), Presets.Num(), *TargetPreset.Name.ToString());
+	Current = EvaluateProfileAt(TargetData, GetDayProgress());
+	UE_LOG(LogTODWeather, Log, TEXT("TODWeatherSubsystem initialized. %d weather files, starting '%s' (day progress %.2f)."),
+		Profiles.Num(), *Current.CurrentPreset.ToString(), GetDayProgress());
 }
 
 void UTODWeatherSubsystem::Deinitialize()
@@ -78,116 +141,34 @@ void UTODWeatherSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
-void UTODWeatherSubsystem::RegisterDefaultPresets()
+void UTODWeatherSubsystem::RegisterFallbackProfiles()
 {
-	FTODWeatherPreset Clear;
-	Clear.Name = TEXT("ClearSky");
-	Clear.ScheduleWeight = 3.0f;
-	Clear.CloudCoverage = 0.15f;
-	Clear.FogDensity = 0.0002f;
-	Clear.WindStrength = 0.25f;
-	Clear.Wetness = 0.0f;
-	Clear.SunIntensityScale = 1.0f;
-	Clear.SkyLightScale = 1.0f;
-	RegisterPreset(Clear);
-
-	FTODWeatherPreset Partly;
-	Partly.Name = TEXT("PartlyCloudy");
-	Partly.ScheduleWeight = 3.0f;
-	Partly.CloudCoverage = 0.45f;
-	Partly.FogDensity = 0.0003f;
-	Partly.WindStrength = 0.45f;
-	Partly.SunIntensityScale = 0.85f;
-	Partly.SkyLightScale = 0.9f;
-	RegisterPreset(Partly);
-
-	FTODWeatherPreset Overcast;
-	Overcast.Name = TEXT("Overcast");
-	Overcast.ScheduleWeight = 2.0f;
-	Overcast.CloudCoverage = 0.9f;
-	Overcast.FogDensity = 0.0006f;
-	Overcast.WindStrength = 0.6f;
-	Overcast.SunIntensityScale = 0.35f;
-	Overcast.SkyLightScale = 0.7f;
-	RegisterPreset(Overcast);
-
-	FTODWeatherPreset Foggy;
-	Foggy.Name = TEXT("Foggy");
-	Foggy.ScheduleWeight = 1.0f;
-	Foggy.CloudCoverage = 0.75f;
-	Foggy.FogDensity = 0.0080f;
-	Foggy.WindStrength = 0.15f;
-	Foggy.SunIntensityScale = 0.4f;
-	Foggy.SkyLightScale = 0.65f;
-	RegisterPreset(Foggy);
-
-	FTODWeatherPreset LightRain;
-	LightRain.Name = TEXT("LightRain");
-	LightRain.ScheduleWeight = 1.5f;
-	LightRain.CloudCoverage = 0.85f;
-	LightRain.FogDensity = 0.0012f;
-	LightRain.WindStrength = 0.7f;
-	LightRain.Wetness = 0.7f;
-	LightRain.SunIntensityScale = 0.3f;
-	LightRain.SkyLightScale = 0.6f;
-	LightRain.RainIntensity = 0.5f;
-	RegisterPreset(LightRain);
-
-	FTODWeatherPreset Thunder;
-	Thunder.Name = TEXT("Thunderstorm");
-	Thunder.ScheduleWeight = 1.0f;
-	Thunder.CloudCoverage = 1.0f;
-	Thunder.FogDensity = 0.0018f;
-	Thunder.WindStrength = 1.0f;
-	Thunder.Wetness = 1.0f;
-	Thunder.SunIntensityScale = 0.18f;
-	Thunder.SkyLightScale = 0.5f;
-	Thunder.bLightning = true;
-	Thunder.RainIntensity = 1.0f;
-	RegisterPreset(Thunder);
-
-	FTODWeatherPreset LightSnow;
-	LightSnow.Name = TEXT("LightSnow");
-	LightSnow.ScheduleWeight = 1.0f;
-	LightSnow.CloudCoverage = 0.8f;
-	LightSnow.FogDensity = 0.0010f;
-	LightSnow.WindStrength = 0.3f;
-	LightSnow.SnowAmount = 0.5f;
-	LightSnow.SunIntensityScale = 0.45f;
-	LightSnow.SkyLightScale = 0.75f;
-	LightSnow.SnowIntensity = 0.45f;
-	RegisterPreset(LightSnow);
-
-	FTODWeatherPreset Snow;
-	Snow.Name = TEXT("Snow");
-	Snow.ScheduleWeight = 1.0f;
-	Snow.CloudCoverage = 0.95f;
-	Snow.FogDensity = 0.0015f;
-	Snow.WindStrength = 0.45f;
-	Snow.SnowAmount = 1.0f;
-	Snow.SunIntensityScale = 0.3f;
-	Snow.SkyLightScale = 0.7f;
-	Snow.SnowIntensity = 1.0f;
-	RegisterPreset(Snow);
-}
-
-void UTODWeatherSubsystem::RegisterPreset(const FTODWeatherPreset& Preset)
-{
-	if (Preset.Name.IsNone())
+	auto Register = [this](const FTODWeatherProfileData& Data)
 	{
-		UE_LOG(LogTODWeather, Warning, TEXT("RegisterPreset refused a preset with no name."));
-		return;
-	}
-	Presets.Add(Preset.Name, Preset);
+		Profiles.Add(Data.Identity.Name, Data);
+	};
+
+	Register(MakeFallbackProfile(TEXT("ClearSky"), 3.0f, 0.15f, 0.0002f, 0.25f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, false));
+	Register(MakeFallbackProfile(TEXT("PartlyCloudy"), 3.0f, 0.45f, 0.0003f, 0.45f, 0.0f, 0.0f, 0.85f, 1.0f, 0.9f, 0.0f, 0.0f, false));
+	Register(MakeFallbackProfile(TEXT("Overcast"), 2.0f, 0.9f, 0.0006f, 0.6f, 0.0f, 0.0f, 0.35f, 0.8f, 0.7f, 0.0f, 0.0f, false));
+	Register(MakeFallbackProfile(TEXT("Foggy"), 1.0f, 0.75f, 0.0080f, 0.15f, 0.0f, 0.0f, 0.4f, 0.7f, 0.65f, 0.0f, 0.0f, false));
+	Register(MakeFallbackProfile(TEXT("LightRain"), 1.5f, 0.85f, 0.0012f, 0.7f, 0.7f, 0.0f, 0.3f, 0.5f, 0.6f, 0.5f, 0.0f, false));
+	Register(MakeFallbackProfile(TEXT("Thunderstorm"), 1.0f, 1.0f, 0.0018f, 1.0f, 1.0f, 0.0f, 0.18f, 0.4f, 0.5f, 1.0f, 0.0f, true));
+	Register(MakeFallbackProfile(TEXT("LightSnow"), 1.0f, 0.8f, 0.0010f, 0.3f, 0.0f, 0.5f, 0.45f, 0.6f, 0.75f, 0.0f, 0.45f, false));
+	Register(MakeFallbackProfile(TEXT("Snow"), 1.0f, 0.95f, 0.0015f, 0.45f, 0.0f, 1.0f, 0.3f, 0.5f, 0.7f, 0.0f, 1.0f, false));
 }
 
 bool UTODWeatherSubsystem::DiscoverProfileAssets()
 {
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
 
+	FARFilter Filter;
+	Filter.ClassPaths.Add(UTODWeatherProfile::StaticClass()->GetClassPathName());
+	Filter.PackagePaths.Add(TEXT("/Game/TOD/Profiles"));
+	Filter.bRecursivePaths = true;
+
 	TArray<FAssetData> FoundAssets;
-	AssetRegistryModule.Get().GetAssetsByClass(
-		UTODWeatherProfile::StaticClass()->GetClassPathName(), FoundAssets, /*bRecursive=*/true);
+	AssetRegistryModule.Get().GetAssets(Filter, FoundAssets);
 
 	int32 Registered = 0;
 	for (const FAssetData& AssetData : FoundAssets)
@@ -197,134 +178,308 @@ bool UTODWeatherSubsystem::DiscoverProfileAssets()
 		{
 			continue;
 		}
-		if (Profile->Data.Core.Name.IsNone())
+		if (Profile->Data.Identity.Name.IsNone())
 		{
-			UE_LOG(LogTODWeather, Warning, TEXT("Weather profile asset %s has no Core.Name - skipped."), *Profile->GetPathName());
+			UE_LOG(LogTODWeather, Warning, TEXT("Weather profile asset %s has no Identity.Name - skipped."), *Profile->GetPathName());
 			continue;
 		}
-		RegisterPreset(Profile->Data.Core);
-		ProfileAssets.Add(Profile->Data.Core.Name, Profile);
+		Profiles.Add(Profile->Data.Identity.Name, Profile->Data);
+		ProfileAssets.Add(Profile->Data.Identity.Name, Profile);
 		++Registered;
 	}
 
 	if (Registered > 0)
 	{
-		UE_LOG(LogTODWeather, Log, TEXT("Discovered %d weather profile asset(s)."), Registered);
+		UE_LOG(LogTODWeather, Log, TEXT("Discovered %d weather file(s) under /Game/TOD/Profiles."), Registered);
 	}
 	return Registered > 0;
 }
 
 void UTODWeatherSubsystem::RegisterProfileFromData(const FTODWeatherProfileData& NewData)
 {
-	if (NewData.Core.Name.IsNone())
+	if (NewData.Identity.Name.IsNone())
 	{
-		UE_LOG(LogTODWeather, Warning, TEXT("RegisterProfileFromData refused a profile with no Core.Name."));
+		UE_LOG(LogTODWeather, Warning, TEXT("RegisterProfileFromData refused a profile with no Identity.Name."));
 		return;
 	}
 
-	UTODWeatherProfile* Profile = NewObject<UTODWeatherProfile>(this,
-		MakeUniqueObjectName(this, UTODWeatherProfile::StaticClass(),
-			*FString::Printf(TEXT("Profile_%s"), *NewData.Core.Name.ToString())));
-	Profile->Data = NewData;
-	InMemoryProfiles.Add(Profile);
+	FTODWeatherProfileData Data = NewData;
+	if (Data.DataVersion < 1)
+	{
+		Data.MigrateLegacyCore();
+	}
 
-	RegisterPreset(NewData.Core);
-	ProfileAssets.Add(NewData.Core.Name, Profile);
-	UE_LOG(LogTODWeather, Log, TEXT("Weather profile '%s' registered from code."), *NewData.Core.Name.ToString());
+	Profiles.Add(Data.Identity.Name, Data);
+	UE_LOG(LogTODWeather, Log, TEXT("Weather file '%s' registered from code."), *Data.Identity.Name.ToString());
 }
 
 bool UTODWeatherSubsystem::GetProfileData(FName PresetName, FTODWeatherProfileData& OutData) const
 {
-	const TObjectPtr<UTODWeatherProfile>* Found = ProfileAssets.Find(PresetName);
-	if (!Found || !*Found)
+	if (const FTODWeatherProfileData* Found = Profiles.Find(PresetName))
 	{
-		return false;
+		OutData = *Found;
+		return true;
 	}
-	OutData = (*Found)->Data;
-	return true;
+	return false;
 }
 
 TArray<FName> UTODWeatherSubsystem::GetRegisteredPresetNames() const
 {
 	TArray<FName> Names;
-	Names.Reserve(Presets.Num());
-	for (const TPair<FName, FTODWeatherPreset>& Pair : Presets)
+	Names.Reserve(Profiles.Num());
+	for (const TPair<FName, FTODWeatherProfileData>& Pair : Profiles)
 	{
 		Names.Add(Pair.Key);
 	}
 	return Names;
 }
 
-FTODWeatherSnapshot UTODWeatherSubsystem::GetWeatherSnapshot() const
+float UTODWeatherSubsystem::GetDayProgress() const
 {
-	FTODWeatherSnapshot Snapshot;
-	Snapshot.PresetName = TargetPreset.Name;
-	return Snapshot;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UTODSubsystem* TOD = World->GetSubsystem<UTODSubsystem>())
+		{
+			return FMath::Frac(FMath::Max(TOD->GetTimeOfDayHours(), 0.0f) / 24.0f);
+		}
+	}
+	// No clock: evaluate the files at noon so the curves are visible.
+	return 0.5f;
 }
 
-bool UTODWeatherSubsystem::ApplyWeatherSnapshot(const FTODWeatherSnapshot& Snapshot, bool bInstant)
+FTODWeatherState UTODWeatherSubsystem::EvaluateProfileAt(const FTODWeatherProfileData& Data, float DayProgress)
 {
-	if (!bInstant)
+	const float T = FMath::Clamp(DayProgress, 0.0f, 1.0f);
+	FTODWeatherState State;
+
+	State.CurrentPreset = Data.Identity.Name;
+	State.bLightning = Data.Identity.bLightning;
+
+	// Ground state.
+	State.bSurfaceEnabled = Data.Surface.bEnabled;
+	State.Wetness = Data.Surface.Wetness.Evaluate(T, 0.0f);
+	State.SnowAmount = Data.Surface.SnowAmount.Evaluate(T, 0.0f);
+
+	// Height fog.
+	State.bFogEnabled = Data.Fog.bEnabled;
+	State.FogDensity = Data.Fog.Density.Evaluate(T, 0.0003f);
+	State.bHasFogInscatteringColor = Data.Fog.InscatteringColor.HasKeys();
+	State.FogInscatteringColor = Data.Fog.InscatteringColor.Evaluate(T, FLinearColor(0.62f, 0.70f, 0.80f, 1.0f));
+	State.FogStartDistance = Data.Fog.StartDistance.Evaluate(T, 0.0f);
+	State.FogEndDistance = Data.Fog.EndDistance.Evaluate(T, 0.0f);
+	State.FogHeightFalloff = Data.Fog.HeightFalloff.Evaluate(T, 0.2f);
+	State.SecondFogDensity = Data.Fog.SecondFogDensity.Evaluate(T, 0.0f);
+	State.SecondFogHeightOffset = Data.Fog.SecondFogHeightOffset.Evaluate(T, 0.0f);
+	State.SecondFogHeightFalloff = Data.Fog.SecondFogHeightFalloff.Evaluate(T, 0.2f);
+
+	// Sun / moon / ambient.
+	State.bLightEnabled = Data.DirectionalLight.bEnabled;
+	State.SunIntensityScale = Data.DirectionalLight.SunIntensityScale.Evaluate(T, 1.0f);
+	State.MoonIntensityScale = Data.DirectionalLight.MoonIntensityScale.Evaluate(T, 1.0f);
+	State.bHasSunColor = Data.DirectionalLight.SunColor.HasKeys();
+	State.SunLightColor = Data.DirectionalLight.SunColor.Evaluate(T, FLinearColor::White);
+	State.bHasMoonColor = Data.DirectionalLight.MoonColor.HasKeys();
+	State.MoonLightColor = Data.DirectionalLight.MoonColor.Evaluate(T, FLinearColor::White);
+	State.SunTemperature = Data.DirectionalLight.SunTemperature.Evaluate(T, 0.0f);
+	State.SunVolumetricScattering = Data.DirectionalLight.SunVolumetricScattering.Evaluate(T, 1.0f);
+	State.MoonVolumetricScattering = Data.DirectionalLight.MoonVolumetricScattering.Evaluate(T, 1.0f);
+	State.SunBloomScale = Data.DirectionalLight.SunBloomScale.Evaluate(T, 1.0f);
+
+	State.bSkyLightEnabled = Data.SkyLight.bEnabled;
+	State.SkyLightScale = Data.SkyLight.IntensityScale.Evaluate(T, 1.0f);
+	State.bHasSkyLightColor = Data.SkyLight.LightColor.HasKeys();
+	State.SkyLightColor = Data.SkyLight.LightColor.Evaluate(T, FLinearColor::White);
+	State.SkyLightVolumetricScattering = Data.SkyLight.VolumetricScattering.Evaluate(T, 1.0f);
+
+	State.bVolumetricFogEnabled = Data.VolumetricFog.bEnabled;
+	State.bHasVolumetricFogAlbedo = Data.VolumetricFog.Albedo.HasKeys();
+	State.VolumetricFogAlbedo = Data.VolumetricFog.Albedo.Evaluate(T, FLinearColor(0.7f, 0.7f, 0.7f, 1.0f));
+	State.VolumetricFogScatteringDistribution = Data.VolumetricFog.ScatteringDistribution.Evaluate(T, 0.5f);
+	State.VolumetricFogExtinctionScale = Data.VolumetricFog.ExtinctionScale.Evaluate(T, 1.0f);
+	State.VolumetricFogViewDistance = Data.VolumetricFog.ViewDistance.Evaluate(T, 6000.0f);
+	State.VolumetricFogStartDistance = Data.VolumetricFog.StartDistance.Evaluate(T, 0.0f);
+
+	State.bWindEnabled = Data.Wind.bEnabled;
+	State.WindStrength = Data.Wind.Strength.Evaluate(T, 0.0f);
+
+	State.bAtmosphereEnabled = Data.Atmosphere.bEnabled;
+	State.RayleighScatteringScale = Data.Atmosphere.RayleighScatteringScale.Evaluate(T, 1.0f);
+	State.MieScatteringScale = Data.Atmosphere.MieScatteringScale.Evaluate(T, 1.0f);
+	State.MieAnisotropy = Data.Atmosphere.MieAnisotropy.Evaluate(T, 0.8f);
+	State.MieExponentialDistribution = Data.Atmosphere.MieExponentialDistribution.Evaluate(T, 0.2f);
+	State.MultiScatteringFactor = Data.Atmosphere.MultiScatteringFactor.Evaluate(T, 1.0f);
+	State.HeightFogContribution = Data.Atmosphere.HeightFogContribution.Evaluate(T, 1.0f);
+
+	State.bCloudEnabled = Data.CloudLayer.bEnabled;
+	State.CloudCoverage = Data.CloudLayer.Coverage.Evaluate(T, 0.2f);
+	State.CloudLayerBottomKm = Data.CloudLayer.LayerBottomKm.Evaluate(T, 1.5f);
+	State.CloudLayerHeightKm = Data.CloudLayer.LayerHeightKm.Evaluate(T, 4.0f);
+
+	State.bPostProcessEnabled = Data.PostProcess.bEnabled;
+	State.PPExposureBias = Data.PostProcess.ExposureBias.Evaluate(T, 1.0f);
+	State.PPExposureMinBrightness = Data.PostProcess.ExposureMinBrightness.Evaluate(T, -1.0f);
+	State.PPExposureMaxBrightness = Data.PostProcess.ExposureMaxBrightness.Evaluate(T, 3.0f);
+	State.PPSaturation = Data.PostProcess.Saturation.Evaluate(T, 1.0f);
+	State.PPContrast = Data.PostProcess.Contrast.Evaluate(T, 1.0f);
+	State.PPVignetteIntensity = Data.PostProcess.VignetteIntensity.Evaluate(T, 0.0f);
+	State.PPBloomIntensity = Data.PostProcess.BloomIntensity.Evaluate(T, 0.675f);
+	State.PPFilmGrainIntensity = Data.PostProcess.FilmGrainIntensity.Evaluate(T, 0.0f);
+	State.PPIndirectLightingIntensity = Data.PostProcess.IndirectLightingIntensity.Evaluate(T, 1.0f);
+	State.bHasPPIndirectLightingColor = Data.PostProcess.IndirectLightingColor.HasKeys();
+	State.PPIndirectLightingColor = Data.PostProcess.IndirectLightingColor.Evaluate(T, FLinearColor::White);
+
+	State.bEffectsEnabled = Data.WeatherEffects.bEnabled;
+	if (State.bEffectsEnabled)
 	{
-		return ForceWeather(Snapshot.PresetName, -1.0f);
+		for (const TPair<FName, FTODWeatherEffect>& Pair : Data.WeatherEffects.Effects)
+		{
+			const FTODWeatherEffect& Effect = Pair.Value;
+			if (!Effect.bEnabled || Effect.System.IsNull())
+			{
+				continue;
+			}
+			FTODWeatherEffectState& Entry = State.Effects.Add(Pair.Key);
+			Entry.System = Effect.System;
+			Entry.ParameterName = Effect.ParameterName;
+			Entry.Intensity = Effect.Intensity.Evaluate(T, 0.0f);
+			Entry.Scale = Effect.Scale;
+			Entry.RelativeLocation = Effect.RelativeLocation;
+			Entry.RelativeRotation = Effect.RelativeRotation;
+		}
 	}
 
-	const FTODWeatherPreset* Found = Presets.Find(Snapshot.PresetName);
-	if (!Found)
+	return State;
+}
+
+FTODWeatherState UTODWeatherSubsystem::BlendStates(const FTODWeatherState& From, const FTODWeatherState& To,
+	float Alpha, float SurfaceAlpha)
+{
+	const float A = FMath::Clamp(Alpha, 0.0f, 1.0f);
+	const float SA = FMath::Clamp(SurfaceAlpha, 0.0f, 1.0f);
+
+	FTODWeatherState State = To;
+
+	State.Wetness = LerpFloat(From.Wetness, To.Wetness, SA);
+	State.SnowAmount = LerpFloat(From.SnowAmount, To.SnowAmount, SA);
+
+	State.FogDensity = LerpFloat(From.FogDensity, To.FogDensity, A);
+	State.FogInscatteringColor = FMath::Lerp(From.FogInscatteringColor, To.FogInscatteringColor, A);
+	State.FogStartDistance = LerpFloat(From.FogStartDistance, To.FogStartDistance, A);
+	State.FogEndDistance = LerpFloat(From.FogEndDistance, To.FogEndDistance, A);
+	State.FogHeightFalloff = LerpFloat(From.FogHeightFalloff, To.FogHeightFalloff, A);
+	State.SecondFogDensity = LerpFloat(From.SecondFogDensity, To.SecondFogDensity, A);
+	State.SecondFogHeightOffset = LerpFloat(From.SecondFogHeightOffset, To.SecondFogHeightOffset, A);
+	State.SecondFogHeightFalloff = LerpFloat(From.SecondFogHeightFalloff, To.SecondFogHeightFalloff, A);
+
+	State.SunIntensityScale = LerpFloat(From.SunIntensityScale, To.SunIntensityScale, A);
+	State.MoonIntensityScale = LerpFloat(From.MoonIntensityScale, To.MoonIntensityScale, A);
+	State.SunLightColor = FMath::Lerp(From.SunLightColor, To.SunLightColor, A);
+	State.MoonLightColor = FMath::Lerp(From.MoonLightColor, To.MoonLightColor, A);
+	State.SunTemperature = LerpFloat(From.SunTemperature, To.SunTemperature, A);
+	State.SunVolumetricScattering = LerpFloat(From.SunVolumetricScattering, To.SunVolumetricScattering, A);
+	State.MoonVolumetricScattering = LerpFloat(From.MoonVolumetricScattering, To.MoonVolumetricScattering, A);
+	State.SunBloomScale = LerpFloat(From.SunBloomScale, To.SunBloomScale, A);
+
+	State.SkyLightScale = LerpFloat(From.SkyLightScale, To.SkyLightScale, A);
+	State.SkyLightColor = FMath::Lerp(From.SkyLightColor, To.SkyLightColor, A);
+	State.SkyLightVolumetricScattering = LerpFloat(From.SkyLightVolumetricScattering, To.SkyLightVolumetricScattering, A);
+
+	State.VolumetricFogAlbedo = FMath::Lerp(From.VolumetricFogAlbedo, To.VolumetricFogAlbedo, A);
+	State.VolumetricFogScatteringDistribution = LerpFloat(From.VolumetricFogScatteringDistribution, To.VolumetricFogScatteringDistribution, A);
+	State.VolumetricFogExtinctionScale = LerpFloat(From.VolumetricFogExtinctionScale, To.VolumetricFogExtinctionScale, A);
+	State.VolumetricFogViewDistance = LerpFloat(From.VolumetricFogViewDistance, To.VolumetricFogViewDistance, A);
+	State.VolumetricFogStartDistance = LerpFloat(From.VolumetricFogStartDistance, To.VolumetricFogStartDistance, A);
+
+	State.WindStrength = LerpFloat(From.WindStrength, To.WindStrength, A);
+
+	State.RayleighScatteringScale = LerpFloat(From.RayleighScatteringScale, To.RayleighScatteringScale, A);
+	State.MieScatteringScale = LerpFloat(From.MieScatteringScale, To.MieScatteringScale, A);
+	State.MieAnisotropy = LerpFloat(From.MieAnisotropy, To.MieAnisotropy, A);
+	State.MieExponentialDistribution = LerpFloat(From.MieExponentialDistribution, To.MieExponentialDistribution, A);
+	State.MultiScatteringFactor = LerpFloat(From.MultiScatteringFactor, To.MultiScatteringFactor, A);
+	State.HeightFogContribution = LerpFloat(From.HeightFogContribution, To.HeightFogContribution, A);
+
+	State.CloudCoverage = LerpFloat(From.CloudCoverage, To.CloudCoverage, A);
+	State.CloudLayerBottomKm = LerpFloat(From.CloudLayerBottomKm, To.CloudLayerBottomKm, A);
+	State.CloudLayerHeightKm = LerpFloat(From.CloudLayerHeightKm, To.CloudLayerHeightKm, A);
+
+	State.PPExposureBias = LerpFloat(From.PPExposureBias, To.PPExposureBias, A);
+	State.PPExposureMinBrightness = LerpFloat(From.PPExposureMinBrightness, To.PPExposureMinBrightness, A);
+	State.PPExposureMaxBrightness = LerpFloat(From.PPExposureMaxBrightness, To.PPExposureMaxBrightness, A);
+	State.PPSaturation = LerpFloat(From.PPSaturation, To.PPSaturation, A);
+	State.PPContrast = LerpFloat(From.PPContrast, To.PPContrast, A);
+	State.PPVignetteIntensity = LerpFloat(From.PPVignetteIntensity, To.PPVignetteIntensity, A);
+	State.PPBloomIntensity = LerpFloat(From.PPBloomIntensity, To.PPBloomIntensity, A);
+	State.PPFilmGrainIntensity = LerpFloat(From.PPFilmGrainIntensity, To.PPFilmGrainIntensity, A);
+	State.PPIndirectLightingIntensity = LerpFloat(From.PPIndirectLightingIntensity, To.PPIndirectLightingIntensity, A);
+	State.PPIndirectLightingColor = FMath::Lerp(From.PPIndirectLightingColor, To.PPIndirectLightingColor, A);
+
+	// Effect table: union of both files, intensities cross-faded, descriptor taken from the target.
+	State.Effects.Reset();
+	for (const TPair<FName, FTODWeatherEffectState>& Pair : To.Effects)
 	{
-		UE_LOG(LogTODWeather, Warning, TEXT("ApplyWeatherSnapshot: unknown preset '%s'."), *Snapshot.PresetName.ToString());
-		return false;
+		FTODWeatherEffectState Entry = Pair.Value;
+		const FTODWeatherEffectState* FromEntry = From.Effects.Find(Pair.Key);
+		Entry.Intensity = LerpFloat(FromEntry ? FromEntry->Intensity : 0.0f, Entry.Intensity, A);
+		State.Effects.Add(Pair.Key, Entry);
+	}
+	for (const TPair<FName, FTODWeatherEffectState>& Pair : From.Effects)
+	{
+		if (To.Effects.Contains(Pair.Key))
+		{
+			continue;
+		}
+		FTODWeatherEffectState Entry = Pair.Value;
+		Entry.Intensity = Entry.Intensity * (1.0f - A);
+		State.Effects.Add(Pair.Key, Entry);
 	}
 
-	TargetPreset = *Found;
-	bTransitioning = false;
-	Current.CurrentPreset = Found->Name;
-	Current.CloudCoverage = Found->CloudCoverage;
-	Current.FogDensity = Found->FogDensity;
-	Current.WindStrength = Found->WindStrength;
-	Current.Wetness = Found->Wetness;
-	Current.SnowAmount = Found->SnowAmount;
-	Current.SunIntensityScale = Found->SunIntensityScale;
-	Current.MoonIntensityScale = Found->MoonIntensityScale;
-	Current.SkyLightScale = Found->SkyLightScale;
-	Current.bLightning = Found->bLightning;
-	Current.RainIntensity = Found->RainIntensity;
-	Current.SnowIntensity = Found->SnowIntensity;
-	ApplyStateToMPC();
-
-	UE_LOG(LogTODWeather, Log, TEXT("Weather snapshot applied instantly: '%s'."), *Found->Name.ToString());
-	return true;
+	return State;
 }
 
 bool UTODWeatherSubsystem::ForceWeather(FName PresetName, float InTransitionSeconds)
 {
-	const FTODWeatherPreset* Found = Presets.Find(PresetName);
+	const FTODWeatherProfileData* Found = Profiles.Find(PresetName);
 	if (!Found)
 	{
-		UE_LOG(LogTODWeather, Warning, TEXT("ForceWeather: unknown preset '%s'. Built-in: ClearSky, PartlyCloudy, Overcast, Foggy, LightRain, Thunderstorm, LightSnow, Snow (+ any registered)."), *PresetName.ToString());
+		FString RegisteredNames;
+		for (const FName& Name : GetRegisteredPresetNames())
+		{
+			RegisteredNames += Name.ToString();
+			RegisteredNames += TEXT(", ");
+		}
+		UE_LOG(LogTODWeather, Warning, TEXT("ForceWeather: unknown weather file '%s'. Registered: %s"),
+			*PresetName.ToString(), *RegisteredNames);
 		return false;
 	}
 
-	FromState = Current;
-	TargetPreset = *Found;
+	FromData = TargetData;
+	if (FromData.Identity.Name.IsNone())
+	{
+		FromData = *Found;
+	}
+	TargetData = *Found;
+
 	ActiveTransitionSeconds = (InTransitionSeconds >= 0.0f) ? InTransitionSeconds : FMath::Max(TransitionSeconds, 0.1f);
+	ActiveSurfaceSeconds = FMath::Max(TargetData.Identity.SurfaceTransitionSeconds, 0.1f);
 	TransitionElapsed = 0.0f;
 	bTransitioning = true;
 
-	UE_LOG(LogTODWeather, Log, TEXT("Weather '%s' -> '%s' over %.1fs."), *Current.CurrentPreset.ToString(), *PresetName.ToString(), ActiveTransitionSeconds);
+	UE_LOG(LogTODWeather, Log, TEXT("Weather '%s' -> '%s' (sky %.1fs, ground %.1fs)."),
+		*FromData.Identity.Name.ToString(), *PresetName.ToString(), ActiveTransitionSeconds, ActiveSurfaceSeconds);
 	return true;
 }
 
 void UTODWeatherSubsystem::RandomizeWeather(float InTransitionSeconds)
 {
-	if (Presets.Num() == 0)
+	if (Profiles.Num() == 0)
 	{
 		return;
 	}
 	float TotalWeight = 0.0f;
-	for (const TPair<FName, FTODWeatherPreset>& Pair : Presets)
+	for (const TPair<FName, FTODWeatherProfileData>& Pair : Profiles)
 	{
-		TotalWeight += FMath::Max(Pair.Value.ScheduleWeight, 0.0f);
+		TotalWeight += FMath::Max(Pair.Value.Identity.ScheduleWeight, 0.0f);
 	}
 	if (TotalWeight <= 0.0f)
 	{
@@ -332,9 +487,9 @@ void UTODWeatherSubsystem::RandomizeWeather(float InTransitionSeconds)
 	}
 
 	float Roll = FMath::FRandRange(0.0f, TotalWeight);
-	for (const TPair<FName, FTODWeatherPreset>& Pair : Presets)
+	for (const TPair<FName, FTODWeatherProfileData>& Pair : Profiles)
 	{
-		Roll -= FMath::Max(Pair.Value.ScheduleWeight, 0.0f);
+		Roll -= FMath::Max(Pair.Value.Identity.ScheduleWeight, 0.0f);
 		if (Roll <= 0.0f)
 		{
 			ForceWeather(Pair.Key, InTransitionSeconds);
@@ -350,30 +505,34 @@ void UTODWeatherSubsystem::TickWeather(float DeltaSeconds)
 		return;
 	}
 
-	// Transition blending (smoothstep for a soft start/end).
+	const float DayProgress = GetDayProgress();
+
 	if (bTransitioning)
 	{
-		TransitionElapsed = FMath::Min(TransitionElapsed + DeltaSeconds, ActiveTransitionSeconds);
-		const float Alpha = FMath::InterpEaseInOut(0.0f, 1.0f, TransitionElapsed / ActiveTransitionSeconds, 2.0f);
+		const float LongestSeconds = FMath::Max(ActiveTransitionSeconds, ActiveSurfaceSeconds);
+		TransitionElapsed = FMath::Min(TransitionElapsed + DeltaSeconds, LongestSeconds);
 
-		Current.CloudCoverage = FMath::Lerp(FromState.CloudCoverage, TargetPreset.CloudCoverage, Alpha);
-		Current.FogDensity = FMath::Lerp(FromState.FogDensity, TargetPreset.FogDensity, Alpha);
-		Current.WindStrength = FMath::Lerp(FromState.WindStrength, TargetPreset.WindStrength, Alpha);
-		Current.Wetness = FMath::Lerp(FromState.Wetness, TargetPreset.Wetness, Alpha);
-		Current.SnowAmount = FMath::Lerp(FromState.SnowAmount, TargetPreset.SnowAmount, Alpha);
-		Current.SunIntensityScale = FMath::Lerp(FromState.SunIntensityScale, TargetPreset.SunIntensityScale, Alpha);
-		Current.MoonIntensityScale = FMath::Lerp(FromState.MoonIntensityScale, TargetPreset.MoonIntensityScale, Alpha);
-		Current.SkyLightScale = FMath::Lerp(FromState.SkyLightScale, TargetPreset.SkyLightScale, Alpha);
-		Current.bLightning = TargetPreset.bLightning;
-		Current.RainIntensity = FMath::Lerp(FromState.RainIntensity, TargetPreset.RainIntensity, Alpha);
-		Current.SnowIntensity = FMath::Lerp(FromState.SnowIntensity, TargetPreset.SnowIntensity, Alpha);
-		Current.CurrentPreset = TargetPreset.Name;
+		const float SkyAlpha = FMath::InterpEaseInOut(0.0f, 1.0f,
+			FMath::Clamp(TransitionElapsed / FMath::Max(ActiveTransitionSeconds, 0.1f), 0.0f, 1.0f), 2.0f);
+		const float SurfaceAlpha = FMath::InterpEaseInOut(0.0f, 1.0f,
+			FMath::Clamp(TransitionElapsed / FMath::Max(ActiveSurfaceSeconds, 0.1f), 0.0f, 1.0f), 2.0f);
 
-		if (TransitionElapsed >= ActiveTransitionSeconds)
+		Current = BlendStates(
+			EvaluateProfileAt(FromData, DayProgress),
+			EvaluateProfileAt(TargetData, DayProgress),
+			SkyAlpha, SurfaceAlpha);
+
+		if (TransitionElapsed >= LongestSeconds)
 		{
 			bTransitioning = false;
-			UE_LOG(LogTODWeather, Log, TEXT("Weather transition to '%s' complete."), *TargetPreset.Name.ToString());
+			UE_LOG(LogTODWeather, Log, TEXT("Weather transition to '%s' complete."), *TargetData.Identity.Name.ToString());
 		}
+	}
+	else
+	{
+		// The active file is re-evaluated every frame: the 24h curves animate the
+		// weather even while the weather itself is "stable".
+		Current = EvaluateProfileAt(TargetData, DayProgress);
 	}
 
 	// Weighted random scheduler (CVar override wins over the subsystem default).
@@ -415,6 +574,37 @@ void UTODWeatherSubsystem::ApplyStateToMPC()
 		UKismetMaterialLibrary::SetScalarParameterValue(World, WeatherCollection, TEXT("WindStrength"), Current.WindStrength);
 		UKismetMaterialLibrary::SetScalarParameterValue(World, WeatherCollection, TEXT("FogDensity"), Current.FogDensity);
 	}
+}
+
+FTODWeatherSnapshot UTODWeatherSubsystem::GetWeatherSnapshot() const
+{
+	FTODWeatherSnapshot Snapshot;
+	Snapshot.PresetName = TargetData.Identity.Name;
+	return Snapshot;
+}
+
+bool UTODWeatherSubsystem::ApplyWeatherSnapshot(const FTODWeatherSnapshot& Snapshot, bool bInstant)
+{
+	if (!bInstant)
+	{
+		return ForceWeather(Snapshot.PresetName, -1.0f);
+	}
+
+	const FTODWeatherProfileData* Found = Profiles.Find(Snapshot.PresetName);
+	if (!Found)
+	{
+		UE_LOG(LogTODWeather, Warning, TEXT("ApplyWeatherSnapshot: unknown weather file '%s'."), *Snapshot.PresetName.ToString());
+		return false;
+	}
+
+	TargetData = *Found;
+	FromData = TargetData;
+	bTransitioning = false;
+	Current = EvaluateProfileAt(TargetData, GetDayProgress());
+	ApplyStateToMPC();
+
+	UE_LOG(LogTODWeather, Log, TEXT("Weather snapshot applied instantly: '%s'."), *Found->Identity.Name.ToString());
+	return true;
 }
 
 UTODWeatherSubsystem* UTODWeatherSubsystem::GetForConsole()
@@ -461,6 +651,13 @@ void UTODWeatherSubsystem::HandleConsoleWeatherInfo()
 		return;
 	}
 	const FTODWeatherState& S = Subsystem->GetCurrentState();
-	UE_LOG(LogTODWeather, Log, TEXT("Weather '%s': cloud=%.2f fog=%.5f wind=%.2f wet=%.2f snow=%.2f sunScale=%.2f skyScale=%.2f lightning=%d"),
-		*S.CurrentPreset.ToString(), S.CloudCoverage, S.FogDensity, S.WindStrength, S.Wetness, S.SnowAmount, S.SunIntensityScale, S.SkyLightScale, S.bLightning ? 1 : 0);
+	UE_LOG(LogTODWeather, Log, TEXT("Weather '%s' @day %.2f: cloud=%.2f fog=%.5f wind=%.2f wet=%.2f snow=%.2f sun=%.2f moon=%.2f sky=%.2f lightning=%d effects=%d"),
+		*S.CurrentPreset.ToString(), Subsystem->GetDayProgress(), S.CloudCoverage, S.FogDensity, S.WindStrength,
+		S.Wetness, S.SnowAmount, S.SunIntensityScale, S.MoonIntensityScale, S.SkyLightScale,
+		S.bLightning ? 1 : 0, S.Effects.Num());
+	for (const TPair<FName, FTODWeatherEffectState>& Pair : S.Effects)
+	{
+		UE_LOG(LogTODWeather, Log, TEXT("  effect '%s': %.2f -> '%s'"), *Pair.Key.ToString(), Pair.Value.Intensity,
+			*Pair.Value.System.ToSoftObjectPath().ToString());
+	}
 }

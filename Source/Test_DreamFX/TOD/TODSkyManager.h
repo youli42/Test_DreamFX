@@ -12,9 +12,12 @@ class USkyLightComponent;
 class USkyAtmosphereComponent;
 class UVolumetricCloudComponent;
 class UExponentialHeightFogComponent;
+class UWindDirectionalSourceComponent;
+class APostProcessVolume;
 class UTODSubsystem;
 class UTODWeatherSubsystem;
 class UTODWeatherProfile;
+struct FTODWeatherState;
 
 /**
  * ATODSkyManager
@@ -126,10 +129,10 @@ private:
 	void UpdateCelestials();
 
 	/** Position, fade and color the two celestial lights for an in-game hour
-	 *  (azimuth orbit + horizon-crossfade at dawn/dusk). */
-	void ApplySunMoon(float TimeHours, float WeatherSunScale, float WeatherMoonScale, float WeatherSkyScale);
+	 *  (azimuth orbit + horizon-crossfade at dawn/dusk), modulated by the weather state. */
+	void ApplySunMoon(float TimeHours, const FTODWeatherState& State);
 
-	/** Apply blended weather to fog, cloud layer and light multipliers. */
+	/** Apply blended weather to fog, cloud layer, atmosphere, wind and post process. */
 	void UpdateWeatherApplication();
 
 	UTODSubsystem* GetTOD() const;
@@ -160,15 +163,30 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="TOD|组件", meta=(DisplayName="高度雾"))
 	TObjectPtr<UExponentialHeightFogComponent> HeightFog;
 
-	/** Rain system whose User.SpawnRateScale follows the weather RainIntensity. Optional. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|天气效果", meta=(DisplayName="雨特效组件"))
-	TObjectPtr<UNiagaraComponent> RainComponent;
+	/** Global wind source driven by the active weather file's wind group. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="TOD|组件", meta=(DisplayName="全局风源"))
+	TObjectPtr<UWindDirectionalSourceComponent> WindComponent;
 
-	/** Snow system whose User.SpawnRateScale follows the weather SnowIntensity. Optional. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|天气效果", meta=(DisplayName="雪特效组件"))
-	TObjectPtr<UNiagaraComponent> SnowComponent;
+	/* ───────────────── Weather application ───────────────── */
+
+	/** Apply the blended weather state to fog / lights / clouds / atmosphere / wind / post process. */
+	void ApplyWeatherGroups(const FTODWeatherState& State);
+
+	/** Spawn, drive and retire one Niagara component per row of the weather-effect table. */
+	void UpdateWeatherEffects(const FTODWeatherState& State);
+
+	/** Lazily create the unbound post-process volume the weather post-process group writes into. */
+	void EnsureWeatherPostProcess();
 
 private:
+	/** Global unbound post-process volume owned by the sky rig (runtime only). */
+	UPROPERTY()
+	TObjectPtr<APostProcessVolume> WeatherPostProcess;
+
+	/** Live weather-effect components, keyed by the intensity table row name. */
+	UPROPERTY()
+	TMap<FName, TObjectPtr<UNiagaraComponent>> WeatherEffectComponents;
+
 	/** Sun light color near the horizon (warm). */
 	UPROPERTY(EditAnywhere, Category="TOD|太阳", meta=(DisplayName="太阳-地平线色"))
 	FLinearColor SunHorizonColor = FLinearColor(1.0f, 0.45f, 0.25f);

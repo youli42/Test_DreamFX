@@ -4,278 +4,441 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "TODWeatherCurve.h"
 #include "TODWeatherProfile.generated.h"
 
 class UNiagaraSystem;
 
+/** Project particle systems used by the built-in fallback weathers and legacy migration. */
+namespace TODWeatherDefaults
+{
+	inline constexpr TCHAR RainSystemPath[] = TEXT("/Game/TOD/Niagara/NS_TOD_Rain.NS_TOD_Rain");
+	inline constexpr TCHAR SnowSystemPath[] = TEXT("/Game/TOD/Niagara/NS_TOD_Snow.NS_TOD_Snow");
+}
+
 /**
- * One named weather preset - the core simulation values (issue #10).
- * Absolute targets; UTODWeatherSubsystem blends from the live state to the
- * target over the transition duration. Lives inside a UTODWeatherProfile
- * asset (or registered from code); the blend state machine consumes this.
- *
- * Display labels are Chinese (issue #12 polish); the property identifiers
- * below stay English - they are the serialization names, the reflection
- * paths (set_property / blueprints) and the doc/console vocabulary.
+ * Legacy flat preset (issue #10/#12). Kept ONLY as the migration input for
+ * WP_*.uasset files authored before the curve refactor: the old assets still
+ * carry a `Data.Core` tag, and UTODWeatherProfile::PostLoad converts it into
+ * the curve groups below. Nothing new should author this struct.
  */
-USTRUCT(BlueprintType)
-struct FTODWeatherPreset
+USTRUCT()
+struct TEST_DREAMFX_API FTODWeatherPreset
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="天气名称"))
+	UPROPERTY()
 	FName Name = NAME_None;
 
-	/** Relative chance of being picked by the random scheduler. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="调度权重", ClampMin="0.0"))
+	UPROPERTY()
 	float ScheduleWeight = 1.0f;
 
-	/** 0 = clear, 1 = fully overcast. Drives cloud visibility today, cloud material in M3+. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="云量", ClampMin="0.0", ClampMax="1.0"))
+	UPROPERTY()
 	float CloudCoverage = 0.2f;
 
-	/** Absolute ExponentialHeightFog fog density. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="雾密度"))
+	UPROPERTY()
 	float FogDensity = 0.0003f;
 
-	/** Global wind strength (Niagara / vegetation consumers read this via MPC). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="风速", ClampMin="0.0"))
+	UPROPERTY()
 	float WindStrength = 0.3f;
 
-	/** Ground wetness 0-1 (drives the Wetness MPC parameter; ground materials). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="地表湿度", ClampMin="0.0", ClampMax="1.0"))
+	UPROPERTY()
 	float Wetness = 0.0f;
 
-	/** Ground snow amount 0-1. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="地表积雪", ClampMin="0.0", ClampMax="1.0"))
+	UPROPERTY()
 	float SnowAmount = 0.0f;
 
-	/** Multiplier on the sun's computed intensity. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="日照强度缩放", ClampMin="0.0"))
+	UPROPERTY()
 	float SunIntensityScale = 1.0f;
 
-	/** Multiplier on the moon's computed intensity. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="月光强度缩放", ClampMin="0.0"))
+	UPROPERTY()
 	float MoonIntensityScale = 1.0f;
 
-	/** Multiplier on the SkyLight intensity. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="天光强度缩放", ClampMin="0.0"))
+	UPROPERTY()
 	float SkyLightScale = 1.0f;
 
-	/** Marks lightning-capable weather (thunderstorm). Consumed by M4. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="伴有雷电"))
+	UPROPERTY()
 	bool bLightning = false;
 
-	/** Rain particle intensity 0-1; drives NS_TOD_Rain User.SpawnRateScale. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="雨强度", ClampMin="0.0", ClampMax="1.0"))
+	UPROPERTY()
 	float RainIntensity = 0.0f;
 
-	/** Snow particle intensity 0-1; drives NS_TOD_Snow User.SpawnRateScale. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="雪强度", ClampMin="0.0", ClampMax="1.0"))
+	UPROPERTY()
 	float SnowIntensity = 0.0f;
 };
 
-/** Which blended weather value feeds a Niagara slot's parameter (M4 applies this). */
-UENUM(BlueprintType)
-enum class ETODWeatherParamDriver : uint8
-{
-	RainIntensity UMETA(DisplayName="雨量"),
-	SnowIntensity UMETA(DisplayName="雪量"),
-	WindStrength  UMETA(DisplayName="风力"),
-	FixedValue    UMETA(DisplayName="固定值"),
-};
-
-/**
- * One weather-driven particle effect. The sky rig spawns and owns the
- * component at runtime (manager-managed, no level placement needed), writes
- * driver*Scale into ParameterName every frame, and destroys it when the
- * weather no longer references the slot.
- * NOTE(M1): fields are authored now; spawning lands in M4.
- */
+/** Weather identity + scheduling metadata (not blended over time). */
 USTRUCT(BlueprintType)
-struct FTODNiagaraSlot
+struct TEST_DREAMFX_API FTODWeatherIdentity
 {
 	GENERATED_BODY()
 
-	/** Particle system to spawn (e.g. NS_TOD_Rain). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|粒子", meta=(DisplayName="粒子系统"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|身份", meta=(DisplayName="天气名称"))
+	FName Name = NAME_None;
+
+	/** Relative chance of being picked by the random scheduler. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|身份", meta=(DisplayName="调度权重", ClampMin="0.0"))
+	float ScheduleWeight = 1.0f;
+
+	/** Marks lightning-capable weather (thunderstorm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|身份", meta=(DisplayName="伴有雷电"))
+	bool bLightning = false;
+
+	/** Longer blend window for ground accumulation (wetness/snow) than the sky. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|身份", meta=(DisplayName="地表过渡时长(秒)", ClampMin="0.0"))
+	float SurfaceTransitionSeconds = 20.0f;
+};
+
+/** Ground state consumed by materials through the weather MPC (no particles). */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherSurfaceGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|地表", meta=(DisplayName="启用地表参数"))
+	bool bEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|地表", meta=(DisplayName="地表湿度"))
+	FTODWeatherCurve Wetness;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|地表", meta=(DisplayName="地表积雪"))
+	FTODWeatherCurve SnowAmount;
+};
+
+/** Height fog: density, inscattering colour, start/end distance, falloff and the second fog layer. */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherFogGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="启用高度雾"))
+	bool bEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="雾密度"))
+	FTODWeatherCurve Density;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="雾散射颜色"))
+	FTODWeatherColorCurve InscatteringColor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="起雾距离"))
+	FTODWeatherCurve StartDistance;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="远处截止距离"))
+	FTODWeatherCurve EndDistance;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="高度衰减"))
+	FTODWeatherCurve HeightFalloff;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="第二层雾密度"))
+	FTODWeatherCurve SecondFogDensity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="第二层雾高度偏移"))
+	FTODWeatherCurve SecondFogHeightOffset;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|高度雾", meta=(DisplayName="第二层雾高度衰减"))
+	FTODWeatherCurve SecondFogHeightFalloff;
+};
+
+/** Sun and moon modulation (our rig has two explicit celestial lights, unlike a single direct light). */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherDirectionalLightGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="启用方向光调节"))
+	bool bEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="阳光强度缩放"))
+	FTODWeatherCurve SunIntensityScale;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="月光强度缩放"))
+	FTODWeatherCurve MoonIntensityScale;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="阳光颜色"))
+	FTODWeatherColorCurve SunColor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="月光颜色"))
+	FTODWeatherColorCurve MoonColor;
+
+	/** Kelvin. 0 = keep the time-of-day colour; > 0 forces a blackbody temperature. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="阳光色温(K, 0=不启用)"))
+	FTODWeatherCurve SunTemperature;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="阳光体积散射强度"))
+	FTODWeatherCurve SunVolumetricScattering;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="月光体积散射强度"))
+	FTODWeatherCurve MoonVolumetricScattering;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="阳光轴泛光强度"))
+	FTODWeatherCurve SunBloomScale;
+};
+
+/** SkyLight intensity / colour / volumetric contribution. */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherSkyLightGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|天光", meta=(DisplayName="启用天光调节"))
+	bool bEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|天光", meta=(DisplayName="强度缩放"))
+	FTODWeatherCurve IntensityScale;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|天光", meta=(DisplayName="颜色"))
+	FTODWeatherColorCurve LightColor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|天光", meta=(DisplayName="体积散射强度"))
+	FTODWeatherCurve VolumetricScattering;
+};
+
+/** Volumetric fog knob set (albedo / distribution / extinction / view distance). */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherVolumetricFogGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|体积雾", meta=(DisplayName="启用体积雾"))
+	bool bEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|体积雾", meta=(DisplayName="反照率"))
+	FTODWeatherColorCurve Albedo;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|体积雾", meta=(DisplayName="散射分布"))
+	FTODWeatherCurve ScatteringDistribution;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|体积雾", meta=(DisplayName="消光缩放"))
+	FTODWeatherCurve ExtinctionScale;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|体积雾", meta=(DisplayName="可视距离"))
+	FTODWeatherCurve ViewDistance;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|体积雾", meta=(DisplayName="起始距离"))
+	FTODWeatherCurve StartDistance;
+};
+
+/** Global wind strength (Niagara / vegetation read it via MPC and the wind component). */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherWindGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|风", meta=(DisplayName="启用风"))
+	bool bEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|风", meta=(DisplayName="风速"))
+	FTODWeatherCurve Strength;
+};
+
+/** SkyAtmosphere overrides (the physical scattering knobs). */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherAtmosphereGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="启用大气调节"))
+	bool bEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="瑞利散射缩放"))
+	FTODWeatherCurve RayleighScatteringScale;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="米氏散射缩放"))
+	FTODWeatherCurve MieScatteringScale;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="米氏各向异性"))
+	FTODWeatherCurve MieAnisotropy;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="米氏指数分布"))
+	FTODWeatherCurve MieExponentialDistribution;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="多散射系数"))
+	FTODWeatherCurve MultiScatteringFactor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="高度雾贡献"))
+	FTODWeatherCurve HeightFogContribution;
+};
+
+/** Volumetric cloud layer: coverage and altitude. Material parameters stay on the material. */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherCloudGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="启用云层调节"))
+	bool bEnabled = false;
+
+	/** 0 = clear, 1 = fully overcast. Drives layer visibility today, material coverage later. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云量"))
+	FTODWeatherCurve Coverage;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云层底高(千米)"))
+	FTODWeatherCurve LayerBottomKm;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云层厚度(千米)"))
+	FTODWeatherCurve LayerHeightKm;
+};
+
+/** Post-process overrides (applied to a global unbound post-process volume owned by the sky rig). */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherPostProcessGroup
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="启用后处理调节"))
+	bool bEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="曝光偏移"))
+	FTODWeatherCurve ExposureBias;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="曝光下限"))
+	FTODWeatherCurve ExposureMinBrightness;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="曝光上限"))
+	FTODWeatherCurve ExposureMaxBrightness;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="色彩饱和度"))
+	FTODWeatherCurve Saturation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="色彩对比度"))
+	FTODWeatherCurve Contrast;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="暗角强度"))
+	FTODWeatherCurve VignetteIntensity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="泛光强度"))
+	FTODWeatherCurve BloomIntensity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="胶片颗粒"))
+	FTODWeatherCurve FilmGrainIntensity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="间接光强度"))
+	FTODWeatherCurve IndirectLightingIntensity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="间接光颜色"))
+	FTODWeatherColorCurve IndirectLightingColor;
+};
+
+/**
+ * One row of the weather-effect intensity table.
+ * The sky rig spawns and owns the system, writes Intensity * Scale into
+ * ParameterName every frame and destroys the component once the intensity
+ * fades out (weather change or time-of-day curve reaching zero).
+ */
+USTRUCT(BlueprintType)
+struct TEST_DREAMFX_API FTODWeatherEffect
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="是否启用"))
+	bool bEnabled = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="粒子系统"))
 	TSoftObjectPtr<UNiagaraSystem> System;
 
-	/** User parameter written every frame. DreamFX rain/snow use User.SpawnRateScale. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|粒子", meta=(DisplayName="参数名"))
+	/** User parameter written every frame (DreamFX rain/snow expose User.SpawnRateScale). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="参数名"))
 	FName ParameterName = TEXT("User.SpawnRateScale");
 
-	/** Blended weather value feeding the parameter. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|粒子", meta=(DisplayName="驱动来源"))
-	ETODWeatherParamDriver Driver = ETODWeatherParamDriver::RainIntensity;
+	/** Weather-domain intensity for this effect; empty curve = effect dormant. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="强度曲线"))
+	FTODWeatherCurve Intensity;
 
-	/** Final value = Driver value * Scale (lets one intensity drive several emitters). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|粒子", meta=(DisplayName="缩放系数", ClampMin="0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="缩放系数", ClampMin="0.0"))
 	float Scale = 1.0f;
 
-	/** Spawn location relative to the sky rig. Rain/snow systems expect a box overhead. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|粒子", meta=(DisplayName="相对位置"))
-	FVector RelativeLocation = FVector::ZeroVector;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="相对位置"))
+	FVector RelativeLocation = FVector(0.0f, 0.0f, 1000.0f);
 
-	/** Spawn rotation relative to the sky rig. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|粒子", meta=(DisplayName="相对旋转"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="相对旋转"))
 	FRotator RelativeRotation = FRotator::ZeroRotator;
 };
 
-/**
- * SkyAtmosphere overrides (whitelist: one flag + one value per field).
- * Unchecked fields leave the component untouched, so switching weather never
- * leaves stale atmosphere values behind. NOTE(M1): authored now; applied in M2.
- */
+/** The weather-effect table; the group switch keeps "only fog, don't touch effects" variants possible. */
 USTRUCT(BlueprintType)
-struct FTODAtmosphereConfig
+struct TEST_DREAMFX_API FTODWeatherEffectsGroup
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="覆盖空气密度"))
-	bool bOverrideAirDensityScale = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="空气密度缩放", EditCondition="bOverrideAirDensityScale", EditConditionHides, ClampMin="0.05", ClampMax="5.0"))
-	float AirDensityScale = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="启用天气特效"))
+	bool bEnabled = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="覆盖瑞利散射"))
-	bool bOverrideRayleighScale = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="瑞利散射缩放", EditCondition="bOverrideRayleighScale", EditConditionHides, ClampMin="0.0", ClampMax="5.0"))
-	float RayleighScatteringScale = 1.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="覆盖米氏散射"))
-	bool bOverrideMieScale = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="米氏散射缩放", EditCondition="bOverrideMieScale", EditConditionHides, ClampMin="0.0", ClampMax="10.0"))
-	float MieScatteringScale = 1.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="覆盖尘埃散射"))
-	bool bOverrideDustScale = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="尘埃散射缩放", EditCondition="bOverrideDustScale", EditConditionHides, ClampMin="0.0", ClampMax="10.0"))
-	float DustScatteringScale = 1.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="覆盖臭氧密度"))
-	bool bOverrideOzoneScale = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="臭氧密度缩放", EditCondition="bOverrideOzoneScale", EditConditionHides, ClampMin="0.0", ClampMax="10.0"))
-	float OzoneDensityScale = 3.0f;
+	/** 特效名 -> 强度. Keys are stable ids (Rain/Snow/...), not display names. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="特效强度表"))
+	TMap<FName, FTODWeatherEffect> Effects;
 };
 
 /**
- * Volumetric cloud layer overrides. Coverage itself comes from Core.
- * NOTE(M1): authored now; LayerBottom/Height apply in M2 via the component,
- * density/albedo through a dynamic material instance once the parameter
- * names of the cloud material are pinned down.
+ * One weather file: grouped, curve-driven parameters.
+ *
+ * Every numeric field is a 24-hour curve (day progress [0,1]). Each group has
+ * its own Enable switch: a weather file may drive only the groups it cares
+ * about ("只换雾、不动天空"), and groups that are off are left untouched.
+ *
+ * Runtime = UTODWeatherSubsystem evaluates this data at the current day
+ * progress and blends between the previous and target weather files; the sky
+ * rig (ATODSkyManager) applies the blended result.
  */
 USTRUCT(BlueprintType)
-struct FTODCloudConfig
+struct TEST_DREAMFX_API FTODWeatherProfileData
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="覆盖云层底高"))
-	bool bOverrideLayerBottom = false;
-	/** Kilometres, engine cloud layer convention. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云层底高(千米)", EditCondition="bOverrideLayerBottom", EditConditionHides, ClampMin="0.1", ClampMax="10.0"))
-	float LayerBottomAltitudeKm = 1.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="身份"))
+	FTODWeatherIdentity Identity;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="覆盖云层厚度"))
-	bool bOverrideLayerHeight = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云层厚度(千米)", EditCondition="bOverrideLayerHeight", EditConditionHides, ClampMin="0.1", ClampMax="20.0"))
-	float LayerHeightKm = 4.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="地表"))
+	FTODWeatherSurfaceGroup Surface;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="覆盖云密度"))
-	bool bOverrideCloudDensity = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云密度", EditCondition="bOverrideCloudDensity", EditConditionHides, ClampMin="0.0", ClampMax="1.0"))
-	float CloudDensity = 0.2f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="高度雾"))
+	FTODWeatherFogGroup Fog;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="覆盖云反照率"))
-	bool bOverrideCloudAlbedo = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云反照率", EditCondition="bOverrideCloudAlbedo", EditConditionHides, ClampMin="0.0", ClampMax="5.0"))
-	float CloudAlbedo = 0.5f;
-};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="方向光"))
+	FTODWeatherDirectionalLightGroup DirectionalLight;
 
-/**
- * Post-process overrides written into a global APostProcessVolume owned by
- * the sky rig. Whitelist of eight knobs; each interpolates with the weather
- * transition. NOTE(M1): authored now; applied in M3.
- */
-USTRUCT(BlueprintType)
-struct FTODPostProcessConfig
-{
-	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="天光"))
+	FTODWeatherSkyLightGroup SkyLight;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="覆盖曝光偏移"))
-	bool bOverrideExposureBias = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="曝光偏移", EditCondition="bOverrideExposureBias", EditConditionHides, ClampMin="-10.0", ClampMax="10.0"))
-	float AutoExposureBias = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="体积雾"))
+	FTODWeatherVolumetricFogGroup VolumetricFog;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="覆盖曝光范围"))
-	bool bOverrideExposureRange = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="曝光下限", EditCondition="bOverrideExposureRange", EditConditionHides, ClampMin="-10.0", ClampMax="0.0"))
-	float AutoExposureMinBrightness = -1.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="曝光上限", EditCondition="bOverrideExposureRange", EditConditionHides, ClampMin="0.0", ClampMax="20.0"))
-	float AutoExposureMaxBrightness = 3.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="风"))
+	FTODWeatherWindGroup Wind;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="覆盖饱和度"))
-	bool bOverrideSaturation = false;
-	/** 1 = neutral. Written to all three ColorSaturation bands. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="色彩饱和度", EditCondition="bOverrideSaturation", EditConditionHides, ClampMin="0.0", ClampMax="2.0"))
-	float ColorSaturation = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="大气"))
+	FTODWeatherAtmosphereGroup Atmosphere;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="覆盖对比度"))
-	bool bOverrideContrast = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="色彩对比度", EditCondition="bOverrideContrast", EditConditionHides, ClampMin="0.25", ClampMax="4.0"))
-	float ColorContrast = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="云层"))
+	FTODWeatherCloudGroup CloudLayer;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="覆盖暗角"))
-	bool bOverrideVignette = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="暗角强度", EditCondition="bOverrideVignette", EditConditionHides, ClampMin="0.0", ClampMax="1.2"))
-	float VignetteIntensity = 0.4f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="后处理"))
+	FTODWeatherPostProcessGroup PostProcess;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="覆盖泛光"))
-	bool bOverrideBloom = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="泛光强度", EditCondition="bOverrideBloom", EditConditionHides, ClampMin="0.0", ClampMax="5.0"))
-	float BloomIntensity = 0.675f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="天气特效"))
+	FTODWeatherEffectsGroup WeatherEffects;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="覆盖胶片颗粒"))
-	bool bOverrideFilmGrain = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="胶片颗粒", EditCondition="bOverrideFilmGrain", EditConditionHides, ClampMin="0.0", ClampMax="1.0"))
-	float FilmGrainIntensity = 0.0f;
-};
+	/** 0 = legacy flat preset, 1 = curve composition. Migration writes 1. */
+	UPROPERTY(VisibleAnywhere, Category="天气", meta=(DisplayName="数据版本"))
+	int32 DataVersion = 0;
 
-/**
- * Everything one weather owns, authored in one UTODWeatherProfile asset:
- * core simulation values plus the atmosphere/cloud/post-process/particle
- * panels. M1 consumes Core; the other segments activate in M2-M4.
- */
-USTRUCT(BlueprintType)
-struct FTODWeatherProfileData
-{
-	GENERATED_BODY()
-
-	/** Core weather values driving lighting/fog/cloud visibility right now. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|核心", meta=(DisplayName="核心参数"))
+	/** Legacy migration source (old WP_* assets carry this tag). Never authored. */
+	UPROPERTY()
 	FTODWeatherPreset Core;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|大气", meta=(DisplayName="大气设置"))
-	FTODAtmosphereConfig Atmosphere;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云层设置"))
-	FTODCloudConfig Clouds;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|后处理", meta=(DisplayName="后处理设置"))
-	FTODPostProcessConfig PostProcess;
-
-	/** Particle effects this weather spawns and drives (manager-owned). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|粒子", meta=(DisplayName="粒子槽位"))
-	TArray<FTODNiagaraSlot> NiagaraSlots;
+	/**
+	 * Convert the legacy flat Core preset into curve groups. Deterministic:
+	 * the same old asset always produces the same curves. Safe to call twice.
+	 */
+	void MigrateLegacyCore();
 };
 
 /**
  * UTODWeatherProfile
  *
- * One asset == one weather (issue #12). Author the whole panel in the editor,
- * or define the same struct from code with RegisterProfileFromData. The
- * weather subsystem discovers these under /Game/TOD/Profiles at startup
- * (cooked builds read the asset registry); names come from Data.Core.Name and
- * are what `tod.ForceWeather <name>` / ForceWeather(FName) accept.
+ * One asset == one weather file (issue #12). Author the groups/curves in the
+ * editor; the weather subsystem discovers these under /Game/TOD/Profiles at
+ * startup (cooked builds read the asset registry). Weather names come from
+ * Data.Identity.Name and are what `tod.ForceWeather <name>` accepts.
  */
 UCLASS(BlueprintType, hidecategories=Object, meta=(DisplayName="TOD Weather Profile"))
 class TEST_DREAMFX_API UTODWeatherProfile : public UPrimaryDataAsset
@@ -283,10 +446,12 @@ class TEST_DREAMFX_API UTODWeatherProfile : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
+	virtual void PostLoad() override;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="天气配置"))
 	FTODWeatherProfileData Data;
 
-	/** Preset name used to select this weather (Data.Core.Name). */
+	/** Weather name used to select this file (Data.Identity.Name). */
 	UFUNCTION(BlueprintPure, Category="TOD|Weather")
-	FName GetProfileName() const { return Data.Core.Name; }
+	FName GetProfileName() const { return Data.Identity.Name; }
 };

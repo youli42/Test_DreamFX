@@ -11,9 +11,14 @@
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/VolumetricCloudComponent.h"
+#include "Components/WindDirectionalSourceComponent.h"
+#include "Containers/Set.h"
+#include "Engine/PostProcessVolume.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInterface.h"
 #include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "Rendering/ExponentialHeightFogData.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTODSky, Log, All);
@@ -80,6 +85,10 @@ ATODSkyManager::ATODSkyManager()
 	HeightFog->SetupAttachment(Root);
 	HeightFog->FogDensity = 0.0003f;
 	HeightFog->bEnableVolumetricFog = true;
+
+	WindComponent = CreateDefaultSubobject<UWindDirectionalSourceComponent>(TEXT("Wind"));
+	WindComponent->SetupAttachment(Root);
+	WindComponent->SetStrength(0.0f);
 }
 
 void ATODSkyManager::BeginPlay()
@@ -87,6 +96,7 @@ void ATODSkyManager::BeginPlay()
 	Super::BeginPlay();
 
 	ConfigureSky();
+	EnsureWeatherPostProcess();
 	if (UTODSubsystem* TOD = GetTOD())
 	{
 		UE_LOG(LogTODSky, Log, TEXT("TODSkyManager online. Clock %.2fh, scale %.3fh/s."),
@@ -181,22 +191,18 @@ void ATODSkyManager::UpdateCelestials()
 		return;
 	}
 
-	// Weather modulates the celestial lights (1.0 when no weather subsystem).
-	float WeatherSunScale = 1.0f;
-	float WeatherMoonScale = 1.0f;
-	float WeatherSkyScale = 1.0f;
+	// Weather modulates the celestial lights and the sky ambient. Without a
+	// weather subsystem the rig runs on neutral defaults (all groups disabled).
+	FTODWeatherState NeutralWeather;
 	if (const UTODWeatherSubsystem* Weather = GetTODWeather())
 	{
-		const FTODWeatherState& State = Weather->GetCurrentState();
-		WeatherSunScale = State.SunIntensityScale;
-		WeatherMoonScale = State.MoonIntensityScale;
-		WeatherSkyScale = State.SkyLightScale;
+		NeutralWeather = Weather->GetCurrentState();
 	}
 
-	ApplySunMoon(TOD->GetTimeOfDayHours(), WeatherSunScale, WeatherMoonScale, WeatherSkyScale);
+	ApplySunMoon(TOD->GetTimeOfDayHours(), NeutralWeather);
 }
 
-void ATODSkyManager::ApplySunMoon(float TimeHours, float WeatherSunScale, float WeatherMoonScale, float WeatherSkyScale)
+void ATODSkyManager::ApplySunMoon(float TimeHours, const FTODWeatherState& State)
 {
 	if (!SunLight || !MoonLight)
 	{
@@ -227,27 +233,67 @@ void ATODSkyManager::ApplySunMoon(float TimeHours, float WeatherSunScale, float 
 	SunLight->SetVisibility(SunWeight > 0.01f);
 	MoonLight->SetVisibility(MoonWeight > 0.01f);
 
+	const bool bWeatherLights = State.bLightEnabled;
+	const float SunScale = bWeatherLights ? State.SunIntensityScale : 1.0f;
+	const float MoonScale = bWeatherLights ? State.MoonIntensityScale : 1.0f;
+
 	if (SunWeight > 0.01f)
 	{
 		const float Daylight = FMath::Pow(FMath::Clamp(SunElev, 0.0f, 1.0f), 0.6f);
-		SunLight->Intensity = SunPeakIntensity * Daylight * SunWeight * WeatherSunScale;
+		SunLight->Intensity = SunPeakIntensity * Daylight * SunWeight * SunScale;
 
-		// Warm the light as the sun approaches the horizon.
-		const float Warmth = 1.0f - FMath::Clamp(SunElev / 0.35f, 0.0f, 1.0f);
-		const FLinearColor SunColor = FLinearColor::LerpUsingHSV(SunZenithColor, SunHorizonColor, Warmth);
-		SunLight->LightColor = SunColor.ToFColor(/*bSRGB*/ false);
+		if (bWeatherLights && State.bHasSunColor)
+		{
+			SunLight->LightColor = State.SunLightColor.ToFColor(/*bSRGB*/ false);
+		}
+		else
+		{
+			// Warm the light as the sun approaches the horizon (time-of-day colour).
+			const float Warmth = 1.0f - FMath::Clamp(SunElev / 0.35f, 0.0f, 1.0f);
+			const FLinearColor SunColor = FLinearColor::LerpUsingHSV(SunZenithColor, SunHorizonColor, Warmth);
+			SunLight->LightColor = SunColor.ToFColor(/*bSRGB*/ false);
+		}
+
+		if (bWeatherLights)
+		{
+			const bool bUseTemperature = State.SunTemperature > 1.0f;
+			SunLight->SetUseTemperature(bUseTemperature);
+			if (bUseTemperature)
+			{
+				SunLight->SetTemperature(State.SunTemperature);
+			}
+			SunLight->SetVolumetricScatteringIntensity(State.SunVolumetricScattering);
+			SunLight->SetEnableLightShaftBloom(State.SunBloomScale > 0.0f);
+			SunLight->SetBloomScale(State.SunBloomScale);
+		}
 	}
 
 	if (MoonWeight > 0.01f)
 	{
 		const float Moonlight = FMath::Pow(FMath::Clamp(MoonElev, 0.0f, 1.0f), 0.7f);
-		MoonLight->Intensity = MoonPeakIntensity * FMath::Max(Moonlight, 0.05f) * MoonWeight * WeatherMoonScale;
-		MoonLight->LightColor = MoonColor.ToFColor(/*bSRGB*/ false);
+		MoonLight->Intensity = MoonPeakIntensity * FMath::Max(Moonlight, 0.05f) * MoonWeight * MoonScale;
+		MoonLight->LightColor = (bWeatherLights && State.bHasMoonColor)
+			? State.MoonLightColor.ToFColor(/*bSRGB*/ false)
+			: MoonColor.ToFColor(/*bSRGB*/ false);
+
+		if (bWeatherLights)
+		{
+			MoonLight->SetVolumetricScatteringIntensity(State.MoonVolumetricScattering);
+		}
 	}
 
 	if (SkyLight)
 	{
-		SkyLight->Intensity = 1.0f * WeatherSkyScale;
+		const bool bWeatherSky = State.bSkyLightEnabled;
+		SkyLight->Intensity = bWeatherSky ? State.SkyLightScale : 1.0f;
+		if (bWeatherSky)
+		{
+			if (State.bHasSkyLightColor)
+			{
+				SkyLight->LightColor = State.SkyLightColor.ToFColor(/*bSRGB*/ true);
+			}
+			SkyLight->VolumetricScatteringIntensity = State.SkyLightVolumetricScattering;
+		}
 	}
 }
 
@@ -260,12 +306,11 @@ void ATODSkyManager::RefreshSkyPreview()
 	}
 
 	// Editor weather preview (issue #12): the weather subsystem does not exist
-	// in the editor world, so apply the picked profile's Core modulation here
-	// directly - the same multipliers the runtime would feed ApplySunMoon.
-	float SunScale = 1.0f;
-	float MoonScale = 1.0f;
-	float SkyScale = 1.0f;
+	// in the editor world, so evaluate the picked weather file's curves here at
+	// PreviewTimeHours/24 and apply the same groups the runtime would apply.
+	FTODWeatherState PreviewState;
 	FName PreviewWeatherName = NAME_None;
+	bool bHasPreviewWeather = false;
 	if (!PreviewWeatherProfile.IsNull())
 	{
 		const UTODWeatherProfile* Profile = PreviewWeatherProfile.Get();
@@ -276,32 +321,24 @@ void ATODSkyManager::RefreshSkyPreview()
 		}
 		if (Profile)
 		{
-			const FTODWeatherPreset& Core = Profile->Data.Core;
-			SunScale = Core.SunIntensityScale;
-			MoonScale = Core.MoonIntensityScale;
-			SkyScale = Core.SkyLightScale;
-			PreviewWeatherName = Core.Name;
-
-			if (HeightFog)
-			{
-				HeightFog->FogDensity = Core.FogDensity;
-			}
-			if (VolumetricClouds)
-			{
-				VolumetricClouds->SetVisibility(bEnableVolumetricCloud && Core.CloudCoverage > 0.02f);
-			}
+			const float DayProgress = FMath::Frac(FMath::Clamp(PreviewTimeHours, 0.0f, 24.0f) / 24.0f);
+			PreviewState = UTODWeatherSubsystem::EvaluateProfileAt(Profile->Data, DayProgress);
+			PreviewWeatherName = PreviewState.CurrentPreset;
+			bHasPreviewWeather = true;
+			ApplyWeatherGroups(PreviewState);
 		}
 		else
 		{
 			UE_LOG(LogTODSky, Warning, TEXT("Preview weather profile '%s' failed to load."), *PreviewWeatherProfile.ToSoftObjectPath().ToString());
 		}
 	}
-	else
+
+	if (!bHasPreviewWeather)
 	{
 		// No preview weather: neutral modulation, constructor defaults.
 		if (HeightFog)
 		{
-			HeightFog->FogDensity = 0.0003f;
+			HeightFog->SetFogDensity(0.0003f);
 		}
 		if (VolumetricClouds)
 		{
@@ -315,10 +352,10 @@ void ATODSkyManager::RefreshSkyPreview()
 	float MoonAzimuth = 0.0f;
 	ComputeSunMoonState(PreviewTimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
-	ApplySunMoon(PreviewTimeHours, SunScale, MoonScale, SkyScale);
+	ApplySunMoon(PreviewTimeHours, PreviewState);
 
 	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f @az %.0f, moon elev %.2f @az %.0f, weather '%s' sunScale %.2f."),
-		PreviewTimeHours, SunElev, SunAzimuth, MoonElev, MoonAzimuth, *PreviewWeatherName.ToString(), SunScale);
+		PreviewTimeHours, SunElev, SunAzimuth, MoonElev, MoonAzimuth, *PreviewWeatherName.ToString(), PreviewState.SunIntensityScale);
 }
 
 void ATODSkyManager::UpdateWeatherApplication()
@@ -328,30 +365,189 @@ void ATODSkyManager::UpdateWeatherApplication()
 	{
 		return;
 	}
-	const FTODWeatherState& State = Weather->GetCurrentState();
+	ApplyWeatherGroups(Weather->GetCurrentState());
+}
 
-	if (HeightFog)
+void ATODSkyManager::ApplyWeatherGroups(const FTODWeatherState& State)
+{
+	// Height fog: an enabled group owns every value; a disabled group is left untouched.
+	if (State.bFogEnabled && HeightFog)
 	{
-		// Weather owns the fog density outright (absolute value from the preset).
-		HeightFog->FogDensity = State.FogDensity;
+		HeightFog->SetFogDensity(State.FogDensity);
+		HeightFog->SetFogHeightFalloff(State.FogHeightFalloff);
+		HeightFog->SetStartDistance(State.FogStartDistance);
+		HeightFog->SetEndDistance(State.FogEndDistance);
+		if (State.bHasFogInscatteringColor)
+		{
+			HeightFog->SetFogInscatteringColor(State.FogInscatteringColor);
+		}
+
+		FExponentialHeightFogData SecondFog = HeightFog->SecondFogData;
+		SecondFog.FogDensity = State.SecondFogDensity;
+		SecondFog.FogHeightFalloff = State.SecondFogHeightFalloff;
+		SecondFog.FogHeightOffset = State.SecondFogHeightOffset;
+		HeightFog->SetSecondFogData(SecondFog);
 	}
 
-	if (VolumetricClouds)
+	if (State.bVolumetricFogEnabled && HeightFog)
 	{
-		// Coverage fades the whole cloud layer in/out for now; material-driven
-		// coverage arrives with the M3 cloud work.
+		HeightFog->SetVolumetricFogAlbedo(State.VolumetricFogAlbedo.ToFColor(/*bSRGB*/ true));
+		HeightFog->SetVolumetricFogScatteringDistribution(State.VolumetricFogScatteringDistribution);
+		HeightFog->SetVolumetricFogExtinctionScale(State.VolumetricFogExtinctionScale);
+		HeightFog->SetVolumetricFogDistance(State.VolumetricFogViewDistance);
+		HeightFog->SetVolumetricFogStartDistance(State.VolumetricFogStartDistance);
+	}
+
+	// Cloud layer: coverage gates visibility for now; altitude curves move the layer.
+	if (State.bCloudEnabled && VolumetricClouds)
+	{
+		VolumetricClouds->SetLayerBottomAltitude(State.CloudLayerBottomKm);
+		VolumetricClouds->SetLayerHeight(State.CloudLayerHeightKm);
 		const bool bCloudsWanted = bEnableVolumetricCloud && State.CloudCoverage > 0.02f;
 		VolumetricClouds->SetVisibility(bCloudsWanted);
 	}
 
-	// Precipitation systems read User.SpawnRateScale (0-1) inside DreamFX sources.
-	if (RainComponent)
+	// Physical atmosphere scattering.
+	if (State.bAtmosphereEnabled && SkyAtmosphere)
 	{
-		RainComponent->SetVariableFloat(TEXT("User.SpawnRateScale"), State.RainIntensity);
+		SkyAtmosphere->SetRayleighScatteringScale(State.RayleighScatteringScale);
+		SkyAtmosphere->SetMieScatteringScale(State.MieScatteringScale);
+		SkyAtmosphere->SetMieAnisotropy(State.MieAnisotropy);
+		SkyAtmosphere->SetMieExponentialDistribution(State.MieExponentialDistribution);
+		SkyAtmosphere->SetMultiScatteringFactor(State.MultiScatteringFactor);
+		SkyAtmosphere->SetHeightFogContribution(State.HeightFogContribution);
 	}
-	if (SnowComponent)
+
+	if (WindComponent)
 	{
-		SnowComponent->SetVariableFloat(TEXT("User.SpawnRateScale"), State.SnowIntensity);
+		WindComponent->SetStrength(State.bWindEnabled ? State.WindStrength : 0.0f);
+	}
+
+	// Post process + particles are runtime-only; the editor preview leaves them alone.
+	const UWorld* World = GetWorld();
+	const bool bGameWorld = World && World->IsGameWorld();
+
+	if (bGameWorld && State.bPostProcessEnabled)
+	{
+		EnsureWeatherPostProcess();
+		if (WeatherPostProcess)
+		{
+			FPostProcessSettings& PP = WeatherPostProcess->Settings;
+			PP.bOverride_AutoExposureBias = true;
+			PP.AutoExposureBias = State.PPExposureBias;
+			PP.bOverride_AutoExposureMinBrightness = true;
+			PP.AutoExposureMinBrightness = State.PPExposureMinBrightness;
+			PP.bOverride_AutoExposureMaxBrightness = true;
+			PP.AutoExposureMaxBrightness = State.PPExposureMaxBrightness;
+			PP.bOverride_ColorSaturation = true;
+			PP.ColorSaturation = FVector4(State.PPSaturation, State.PPSaturation, State.PPSaturation, 1.0);
+			PP.bOverride_ColorContrast = true;
+			PP.ColorContrast = FVector4(State.PPContrast, State.PPContrast, State.PPContrast, 1.0);
+			PP.bOverride_VignetteIntensity = true;
+			PP.VignetteIntensity = State.PPVignetteIntensity;
+			PP.bOverride_BloomIntensity = true;
+			PP.BloomIntensity = State.PPBloomIntensity;
+			PP.bOverride_FilmGrainIntensity = true;
+			PP.FilmGrainIntensity = State.PPFilmGrainIntensity;
+			PP.bOverride_IndirectLightingIntensity = true;
+			PP.IndirectLightingIntensity = State.PPIndirectLightingIntensity;
+			if (State.bHasPPIndirectLightingColor)
+			{
+				PP.bOverride_IndirectLightingColor = true;
+				PP.IndirectLightingColor = State.PPIndirectLightingColor;
+			}
+		}
+	}
+
+	if (bGameWorld)
+	{
+		UpdateWeatherEffects(State);
+	}
+}
+
+void ATODSkyManager::EnsureWeatherPostProcess()
+{
+	if (WeatherPostProcess)
+	{
+		return;
+	}
+	UWorld* World = GetWorld();
+	if (!World || !World->IsGameWorld())
+	{
+		return;
+	}
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Owner = this;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	APostProcessVolume* Volume = World->SpawnActor<APostProcessVolume>(APostProcessVolume::StaticClass(), SpawnParams);
+	if (Volume)
+	{
+		Volume->bUnbound = true;
+		Volume->bEnabled = true;
+		Volume->BlendWeight = 1.0f;
+		WeatherPostProcess = Volume;
+	}
+}
+
+void ATODSkyManager::UpdateWeatherEffects(const FTODWeatherState& State)
+{
+	TSet<FName> Wanted;
+
+	if (State.bEffectsEnabled)
+	{
+		for (const TPair<FName, FTODWeatherEffectState>& Pair : State.Effects)
+		{
+			const FTODWeatherEffectState& Effect = Pair.Value;
+			const float Intensity = Effect.Intensity * Effect.Scale;
+			if (Intensity <= 0.001f || Effect.System.IsNull())
+			{
+				continue;
+			}
+
+			UNiagaraSystem* System = Effect.System.LoadSynchronous();
+			if (!System)
+			{
+				continue;
+			}
+
+			TObjectPtr<UNiagaraComponent>* Existing = WeatherEffectComponents.Find(Pair.Key);
+			UNiagaraComponent* Component = Existing ? Existing->Get() : nullptr;
+			if (!Component)
+			{
+				Component = NewObject<UNiagaraComponent>(this,
+					MakeUniqueObjectName(this, UNiagaraComponent::StaticClass(), Pair.Key));
+				Component->SetupAttachment(RootComponent);
+				Component->RegisterComponent();
+				WeatherEffectComponents.Add(Pair.Key, Component);
+			}
+
+			if (Component->GetAsset() != System)
+			{
+				Component->SetAsset(System);
+			}
+			Component->SetRelativeLocationAndRotation(Effect.RelativeLocation, Effect.RelativeRotation);
+			Component->SetVariableFloat(Effect.ParameterName, Intensity);
+			if (!Component->IsActive())
+			{
+				Component->Activate(true);
+			}
+			Wanted.Add(Pair.Key);
+		}
+	}
+
+	// Retire effects that left the table or faded to zero (including during transitions).
+	for (auto It = WeatherEffectComponents.CreateIterator(); It; ++It)
+	{
+		if (Wanted.Contains(It.Key()) && It.Value())
+		{
+			continue;
+		}
+		if (It.Value())
+		{
+			It.Value()->DestroyComponent();
+		}
+		It.RemoveCurrent();
 	}
 }
 

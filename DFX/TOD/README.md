@@ -32,8 +32,8 @@ pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build -All -Force   # 全量
 | 系统 | 说明 | 状态 |
 |---|---|---|
 | `NS_TOD_DustMotes` | 环境浮尘:大体积低密度慢漂微粒,日间逆光氛围 | 构建 OK |
-| `NS_TOD_Rain` | 雨丝:固定盒雨幕,`User.SpawnRateScale` 由天气 RainIntensity 驱动 | **搁置**(见下) |
-| `NS_TOD_Snow` | 雪花:Curl 侧摆飘落,`User.SpawnRateScale` 由天气 SnowIntensity 驱动 | **搁置**(同 Rain) |
+| `NS_TOD_Rain` | 雨丝:固定盒雨幕,`User.SpawnRateScale` 由天气文件的「天气特效强度表」驱动 | **搁置**(见下) |
+| `NS_TOD_Snow` | 雪花:Curl 侧摆飘落,`User.SpawnRateScale` 由天气文件的「天气特效强度表」驱动 | **搁置**(同 Rain) |
 
 ## 已知问题:SpawnRate 型发射器不渲染(2026-10-20 诊断,issue #11)
 
@@ -47,5 +47,6 @@ pwsh -File Plugins/DreamFX/.skill/dfx.ps1 build -All -Force   # 全量
 ## 与 C++ 的关系
 
 - 时间与天体驱动在 `Source/Test_DreamFX/TOD/`(`UTODSubsystem` 世界时钟 + `UTODWeatherSubsystem` 天气状态机 + `ATODSkyManager` 光照装备)。
-- 本目录只放粒子表现;天气状态机经用户参数 `User.SpawnRateScale`(0-1)驱动这些系统,
-  雨=`RainIntensity`、雪=`SnowIntensity`(C++ 每帧写入,晴天下即为 0——这是设计行为)。
+- 本目录只放粒子表现;天气文件(`WP_*`)的「天气特效强度表」把系统与强度曲线配对,
+  天空装备自动 spawn 并每帧写入 `User.SpawnRateScale`(0-1),强度归零即销毁——晴天下没有雨雪,
+  这是设计行为。
