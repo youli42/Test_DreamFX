@@ -6,17 +6,17 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "TODSubsystem.generated.h"
 
-/** Serializable clock state; games persist this alongside their save. */
+/** 可序列化的时钟状态；游戏将其与自身存档一并持久化。 */
 USTRUCT(BlueprintType)
 struct FTODTimeSnapshot
 {
 	GENERATED_BODY()
 
-	/** In-game hours [0, 24) at save time. */
+	/** 存档时刻的游戏内小时数 [0, 24)。 */
 	UPROPERTY(BlueprintReadWrite, Category="TOD")
 	float TimeOfDayHours = 9.0f;
 
-	/** Real minutes one in-game day takes at save time. */
+	/** 存档时刻一个游戏内日所对应的真实分钟数。 */
 	UPROPERTY(BlueprintReadWrite, Category="TOD")
 	float DayLengthMinutes = 4.0f;
 };
@@ -24,13 +24,13 @@ struct FTODTimeSnapshot
 /**
  * UTODSubsystem
  *
- * World-scoped time-of-day state. Holds the authoritative in-game clock and
- * exposes it to any driver (ATODSkyManager advances it by default).
+ * 世界范围的昼夜时间状态。持有权威的世界时钟，并
+ * 将其暴露给任意驱动者（默认由 ATODSkyManager 推进）。
  *
- * Design note: the subsystem owns *state only*; it never ticks. A scene actor
- * (ATODSkyManager) advances the clock so that time only moves while a sky
- * rig exists in the level. This mirrors the "environment manager broadcasts
- * state" pattern used by production weather/TOD systems.
+ * 设计说明：本子系统*只负责状态*，从不自行 Tick。场景中的 Actor
+ * （ATODSkyManager）推进时钟，使时间只在关卡中存在天空装置
+ * 时才流动。这呼应了生产级天气/TOD 系统所采用的
+ * “环境管理器广播状态”模式。
  */
 UCLASS(Blueprintable, BlueprintType)
 class TEST_DREAMFX_API UTODSubsystem : public UWorldSubsystem
@@ -43,60 +43,60 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
-	/** Advance the in-game clock. Call once per frame from a driver actor. */
+	/** 推进游戏内时钟。由驱动者 Actor 每帧调用一次。 */
 	void AdvanceTime(float DeltaSeconds);
 
-	/** Current in-game time in hours [0, 24). 0 = midnight, 12 = noon. */
+	/** 当前游戏内时间（小时）[0, 24)。0 = 午夜，12 = 正午。 */
 	UFUNCTION(BlueprintPure, Category="TOD")
 	float GetTimeOfDayHours() const { return TimeOfDayHours; }
 
-	/** Set the in-game clock directly (wraps into [0, 24)). */
+	/** 直接设置游戏内时钟（回卷到 [0, 24)）。 */
 	UFUNCTION(BlueprintCallable, Category="TOD")
 	void SetTimeOfDayHours(float InHours);
 
-	/** Sine of sun altitude on the tilted orbit (see ATODSkyManager): 0 at sunrise/sunset, peaks at sin(SunTilt) ≈ 0.87 at noon. */
+	/** 太阳在倾斜轨道上的高度角正弦（见 ATODSkyManager）：日出/日落为 0，正午达到 sin(SunTilt) ≈ 0.87。 */
 	UFUNCTION(BlueprintPure, Category="TOD")
 	float GetSunElevation01() const;
 
-	/** Sine of the moon's altitude (anti-solar point on the same tilted circle). */
+	/** 月球高度角的正弦（同一倾斜大圆上的反日点）。 */
 	UFUNCTION(BlueprintPure, Category="TOD")
 	float GetMoonElevation01() const;
 
-	/** In-game hours per real-time second while advancing. */
+	/** 推进时每个真实秒对应的游戏内小时数。 */
 	float GetTimeScale() const;
 
-	/** Set the pace of time: real minutes an in-game day takes (0 disables advancing). */
+	/** 设置时间流速：一个游戏日对应的真实分钟数（0 表示停止推进）。 */
 	UFUNCTION(BlueprintCallable, Category="TOD")
 	void SetDayLengthMinutes(float MinutesPerDay);
 
 	UFUNCTION(BlueprintPure, Category="TOD")
 	float GetDayLengthMinutes() const;
 
-	/** Snapshot the clock for persistence (issue #10 "天气/时间可随存档保存"). */
+	/** 为持久化而对时钟做快照（issue #10 "天气/时间可随存档保存"）。 */
 	UFUNCTION(BlueprintCallable, Category="TOD")
 	FTODTimeSnapshot GetTimeSnapshot() const;
 
-	/** Restore a snapshot taken with GetTimeSnapshot. */
+	/** 恢复由 GetTimeSnapshot 取得的快照。 */
 	UFUNCTION(BlueprintCallable, Category="TOD")
 	void ApplyTimeSnapshot(const FTODTimeSnapshot& Snapshot);
 
-	/** Console command handler: set the clock, e.g. `tod.SetTime 21.5`. */
+	/** 控制台命令处理：设置时钟，例如 `tod.SetTime 21.5`。 */
 	static void HandleConsoleSetTime(const TArray<FString>& Args);
 
-	/** Console command handler: print current TOD state, `tod.Info`. */
+	/** 控制台命令处理：打印当前 TOD 状态，`tod.Info`。 */
 	static void HandleConsoleInfo();
 
-	/** Resolve a subsystem for console commands without a world context (uses PIE / first game world). */
+	/** 在无世界上下文时为控制台命令解析子系统（取 PIE / 首个游戏世界）。 */
 	static UTODSubsystem* GetForConsole();
 
 private:
-	/** In-game hours [0, 24). */
+	/** 游戏内小时数 [0, 24)。 */
 	float TimeOfDayHours = 9.0f;
 
-	/** Real minutes per in-game day; drives TimeScaleHoursPerSecond (24 / (60*minutes)). */
+	/** 每个游戏日的真实分钟数；决定 TimeScaleHoursPerSecond（24 / (60*minutes)）。 */
 	UPROPERTY(EditAnywhere, Category="TOD|时间", meta=(DisplayName="一天时长(真实分钟)"))
 	float DayLengthMinutes = 4.0f;
 
-	/** When false, AdvanceTime is a no-op (clock still settable). */
+	/** 为 false 时 AdvanceTime 不作任何事（时钟仍可手动设置）。 */
 	bool bAutoAdvance = true;
 };

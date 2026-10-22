@@ -16,24 +16,24 @@ void FTODWeatherProfileData::MigrateLegacyCore()
 {
 	if (Core.Name.IsNone())
 	{
-		// Fresh asset or already migrated: just stamp the version.
+		// 全新资产或已迁移：只需写入版本号。
 		DataVersion = FMath::Max(DataVersion, 1);
 		return;
 	}
 
-	// Identity / scheduling.
+	// 身份 / 调度。
 	Identity.Name = Core.Name;
 	Identity.ScheduleWeight = FMath::Max(Core.ScheduleWeight, 0.0f);
 	Identity.bLightning = Core.bLightning;
 
 	const int32 Seed = SeedFor(Core.Name, 1);
 
-	// Ground state.
+	// 地表状态。
 	Surface.bEnabled = true;
 	Surface.Wetness = FTODWeatherCurve::RandomAround(Core.Wetness, Seed + 10);
 	Surface.SnowAmount = FTODWeatherCurve::RandomAround(Core.SnowAmount, Seed + 11);
 
-	// Height fog: only authored when the old preset actually had fog.
+	// 高度雾：仅当旧预设确实带雾时才制作。
 	if (Core.FogDensity > UE_KINDA_SMALL_NUMBER)
 	{
 		Fog.bEnabled = true;
@@ -42,7 +42,7 @@ void FTODWeatherProfileData::MigrateLegacyCore()
 			FLinearColor(0.62f, 0.70f, 0.80f, 1.0f), Seed + 21, 0.10f);
 	}
 
-	// Sun/moon + sky ambient scales (colour is left to the time-of-day rig).
+	// 日月 + 天光缩放（颜色交由天空装置处理）。
 	DirectionalLight.bEnabled = true;
 	DirectionalLight.SunIntensityScale = FTODWeatherCurve::RandomAround(Core.SunIntensityScale, Seed + 30, 0.20f);
 	DirectionalLight.MoonIntensityScale = FTODWeatherCurve::RandomAround(Core.MoonIntensityScale, Seed + 31, 0.25f);
@@ -56,8 +56,8 @@ void FTODWeatherProfileData::MigrateLegacyCore()
 	CloudLayer.bEnabled = true;
 	CloudLayer.Coverage = FTODWeatherCurve::RandomAround(Core.CloudCoverage, Seed + 60, 0.20f);
 
-	// Rain/snow become rows of the weather-effect intensity table instead of
-	// dedicated fields, so the sky rig drives any particle system uniformly.
+	// 雨/雪改为天气特效强度表中的行，而不是
+	// 专门字段，这样天空装置就能统一驱动任意粒子系统。
 	if (Core.RainIntensity > UE_KINDA_SMALL_NUMBER)
 	{
 		WeatherEffects.bEnabled = true;
@@ -76,7 +76,7 @@ void FTODWeatherProfileData::MigrateLegacyCore()
 		Snow.RelativeLocation = FVector(0.0f, 0.0f, 1200.0f);
 	}
 
-	// The legacy tag is cleared so a re-save drops it and stops re-migrating.
+	// 清空旧版标签，这样重新保存时就会丢弃它并停止再次迁移。
 	Core = FTODWeatherPreset();
 	DataVersion = 1;
 }

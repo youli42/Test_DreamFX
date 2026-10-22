@@ -7,17 +7,17 @@
 #include "TODWeatherCurve.generated.h"
 
 /**
- * A 24-hour weather curve.
+ * 24 小时天气曲线。
  *
- * The horizontal axis is *day progress* in [0,1] (0 = midnight, 0.5 = noon),
- * the vertical axis is the weather value itself. Keys are stored inside the
- * asset (FRuntimeFloatCurve::EditorCurveData), so one weather file is
- * self-contained and every numeric field can change over the day.
+ * 横轴是*一天进度*，区间 [0,1]（0 = 午夜，0.5 = 正午），
+ * 纵轴是天气值本身。关键帧保存在资产内部
+ * （FRuntimeFloatCurve::EditorCurveData），因此一个天气文件
+ * 是自包含的，每个数值字段都能随一天进度变化。
  *
- * An empty curve means "not authored": consumers leave the target property
- * untouched instead of snapping it to zero. That is what makes the per-group
- * Enable switches useful - a weather file may drive only fog and leave the
- * sky alone.
+ * 空曲线表示「未制作」：使用者会保持目标属性原样，
+ * 而不是将其归零。这正是各分组启用开关的价值——一个天气文件
+ * 可以只驱动雾，
+ * 而让天空保持原样。
  */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherCurve
@@ -27,25 +27,25 @@ struct TEST_DREAMFX_API FTODWeatherCurve
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="曲线", meta=(DisplayName="曲线"))
 	FRuntimeFloatCurve Curve;
 
-	/** True when the curve has at least one key authored. */
+	/** 曲线至少制作了一个关键帧时为真。 */
 	bool HasKeys() const;
 
-	/** Evaluate at day progress [0,1]; returns Fallback when nothing is authored. */
+	/** 在一天进度 [0,1] 处求值；未制作时返回 Fallback。 */
 	float Evaluate(float InDayProgress, float Fallback = 0.0f) const;
 
-	/** Replace the keys with a flat line at Value. */
+	/** 将关键帧替换为值为 Value 的水平直线。 */
 	void SetConstant(float Value);
 
-	/** Replace the keys (times are day progress). Cubic interpolation, auto tangents. */
+	/** 替换关键帧（时间为一天进度）。三次插值，自动切线。 */
 	void SetKeys(const TArray<TPair<float, float>>& InKeys);
 
 	static FTODWeatherCurve Constant(float Value);
 
-	/** A deterministic wobble around Base so a migrated preset visibly moves over the day. */
+	/** 围绕 Base 的确定性波动，使迁移后的预设在一天内有可见的变化。 */
 	static FTODWeatherCurve RandomAround(float Base, int32 Seed, float Variance = 0.35f);
 };
 
-/** RGBA colour authored as four independent 24-hour curves (matches typical weather tooling). */
+/** RGBA 颜色，制作为四条独立的 24 小时曲线（与常见天气工具的做法一致）。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherColorCurve
 {

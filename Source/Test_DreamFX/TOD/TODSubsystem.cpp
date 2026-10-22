@@ -11,7 +11,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogTOD, Log, All);
 
 namespace TODCVars
 {
-	/** Global override for the time scale. Negative values fall back to the subsystem default. */
+	/** 全局时间缩放覆盖。负值回退到子系统默认值。 */
 	TAutoConsoleVariable<float> CVarTODTimeScale(
 		TEXT("tod.TimeScale"),
 		-1.0f,
@@ -31,7 +31,7 @@ namespace TODCVars
 
 bool UTODSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
-	// Only create for playable worlds (game + PIE); skip editor preview worlds.
+	// 仅为可游玩世界创建（game + PIE），跳过编辑器预览世界。
 	if (const UWorld* World = Cast<UWorld>(Outer))
 	{
 		const EWorldType::Type WorldType = World->WorldType;
@@ -75,7 +75,7 @@ float UTODSubsystem::GetTimeScale() const
 	}
 	if (DayLengthMinutes <= 0.0f)
 	{
-		return 0.0f; // paused
+		return 0.0f; // 暂停
 	}
 	return 24.0f / (60.0f * DayLengthMinutes);
 }
@@ -108,8 +108,8 @@ void UTODSubsystem::ApplyTimeSnapshot(const FTODTimeSnapshot& Snapshot)
 
 float UTODSubsystem::GetSunElevation01() const
 {
-	// Single source of truth: delegate to the sky rig's tilted-orbit model.
-	// Peaks at sin(noon altitude) < 1 — the sun never crosses the zenith.
+	// 唯一真源：委托给天空装置的倾斜轨道模型。
+	// 峰值为 sin(正午高度角) < 1——太阳从不越过天顶。
 	float SunElev = 0.0f;
 	float MoonElev = 0.0f;
 	float SunAz = 0.0f;

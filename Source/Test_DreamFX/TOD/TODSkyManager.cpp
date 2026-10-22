@@ -25,7 +25,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogTODSky, Log, All);
 
 namespace
 {
-	/** Engine default raymarched cloud material (UE 5.8); may be missing in stripped builds. */
+	/** 引擎默认的光线步进云层材质（UE 5.8）；精简构建中可能缺失。 */
 	constexpr TCHAR VolumetricCloudMaterialPath[] =
 		TEXT("/Engine/EngineSky/m_SimpleVolumetricCloud_Inst.m_SimpleVolumetricCloud_Inst");
 }
@@ -52,7 +52,7 @@ ATODSkyManager::ATODSkyManager()
 	MoonLight->bCastCloudShadows = true;
 	MoonLight->Intensity = 0.2f;
 
-	// Static CDO pose at the default clock (9h), consistent with the tilted-orbit model.
+	// 静态 CDO 姿态按默认时钟（9h）摆放，与倾斜轨道模型保持一致。
 	{
 		float InitSunElev = 0.f, InitMoonElev = 0.f, InitSunAz = 0.f, InitMoonAz = 0.f;
 		ComputeSunMoonState(9.0f, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
@@ -60,9 +60,9 @@ ATODSkyManager::ATODSkyManager()
 		SunLight->SetRelativeRotation(FRotator(-InitSunElev * MaxCelestialPitch, InitSunAz, 0.0f));
 		MoonLight->SetRelativeRotation(FRotator(-InitMoonElev * MaxCelestialPitch, InitMoonAz, 0.0f));
 	}
-	// Editor-state policy: only ONE celestial light is ever visible. UpdateCelestials()
-	// toggles visibility exclusively (sun XOR moon) while running; hiding the moon here
-	// guarantees no dual-primary-light contest in the un-ticked editor world either.
+	// 编辑器状态策略：任何时候只有一盏天体光源可见。UpdateCelestials()
+	// 在运行期间独占切换可见性（太阳 XOR 月亮）；在此隐藏月亮
+	// 可确保未被 Tick 的编辑器世界中也无双主光相争。
 	MoonLight->SetVisibility(false);
 
 	SkyLight = CreateDefaultSubobject<USkyLightComponent>(TEXT("SkyLight"));
@@ -76,7 +76,7 @@ ATODSkyManager::ATODSkyManager()
 
 	VolumetricClouds = CreateDefaultSubobject<UVolumetricCloudComponent>(TEXT("VolumetricClouds"));
 	VolumetricClouds->SetupAttachment(Root);
-	// Altitudes are in kilometers for the engine cloud layer.
+	// 引擎云层的高程以千米（km）为单位。
 	VolumetricClouds->LayerBottomAltitude = 1.5f;
 	VolumetricClouds->LayerHeight = 4.0f;
 	VolumetricClouds->SetVisibility(bEnableVolumetricCloud);
@@ -114,8 +114,8 @@ void ATODSkyManager::ConfigureSky()
 
 	if (bEnableVolumetricCloud && VolumetricClouds)
 	{
-		// The engine component ships a default cloud material; only patch in our own
-		// when that default is missing (e.g. stripped builds).
+		// 引擎组件自带默认云层材质；仅当该默认缺失时
+		// （例如精简构建）才换上我们自己的。
 		if (!VolumetricClouds->GetMaterial())
 		{
 			if (UMaterialInterface* CloudMaterial = LoadObject<UMaterialInterface>(nullptr, VolumetricCloudMaterialPath))
@@ -152,7 +152,7 @@ void ATODSkyManager::Tick(float DeltaSeconds)
 		TOD->AdvanceTime(DeltaSeconds);
 	}
 
-	// Weather blending shares the same driver source as the clock.
+	// 天气混合与时钟共用同一驱动源。
 	if (UTODWeatherSubsystem* Weather = GetTODWeather())
 	{
 		Weather->TickWeather(DeltaSeconds);
@@ -165,11 +165,11 @@ void ATODSkyManager::Tick(float DeltaSeconds)
 void ATODSkyManager::ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, float MoonPhaseOffset, float SunTilt,
 	float& OutSunElev, float& OutMoonElev, float& OutSunAzimuth, float& OutMoonAzimuth)
 {
-	// Tilted great circle, like a real mid-latitude sun track:
+	// 倾斜大圆，如同真实的中纬度太阳轨迹：
 	//   v(H) = (cos H, sin H * cos T, sin H * sin T),  H = (t - 6) * 15°,  T = tilt.
-	// H = 0 sits on the horizon at the rise azimuth, noon culminates at altitude = Tilt
-	// (below the zenith, so shadows sweep instead of collapsing and flipping), H = 180
-	// sets due opposite. Elevation is returned as sine-of-altitude.
+	// H = 0 落在地平线上、升起方位角处，正午在高度角 = Tilt 处上中天
+	// （低于天顶，故阴影平滑扫过而非塌缩翻转），H = 180
+	// 位于正对面落下。返回的高度为高度角正弦值。
 	const float H = FMath::DegreesToRadians((TimeHours - 6.0f) * 15.0f);
 	const float T = FMath::DegreesToRadians(FMath::Clamp(SunTilt, 5.0f, 89.5f));
 
@@ -178,7 +178,7 @@ void ATODSkyManager::ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, 
 	OutSunElev = FMath::Sin(H) * FMath::Sin(T);
 	OutSunAzimuth = SunRiseAzimuth + FMath::RadiansToDegrees(FMath::Atan2(HorizonY, HorizonX));
 
-	// Moon = anti-solar point on the same circle (plus phase offset).
+	// 月亮 = 同一圆上的反日点（叠加相位偏移）。
 	OutMoonElev = -OutSunElev;
 	OutMoonAzimuth = OutSunAzimuth + 180.0f + MoonPhaseOffset;
 }
@@ -191,8 +191,8 @@ void ATODSkyManager::UpdateCelestials()
 		return;
 	}
 
-	// Weather modulates the celestial lights and the sky ambient. Without a
-	// weather subsystem the rig runs on neutral defaults (all groups disabled).
+	// 天气调制天体光源与环境光。若没有天气子系统，
+	// 天空装置以中性默认值运行（所有组均不生效）。
 	FTODWeatherState NeutralWeather;
 	if (const UTODWeatherSubsystem* Weather = GetTODWeather())
 	{
@@ -216,17 +216,17 @@ void ATODSkyManager::ApplySunMoon(float TimeHours, const FTODWeatherState& State
 	ComputeSunMoonState(TimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
 
-	// Directional light shines along its rotated -X axis: negative pitch points
-	// the light down toward the ground, pitch 0 is horizontal (sunrise/sunset).
+	// 定向光沿其旋转后的 -X 轴照射：负俯仰把灯光
+	// 指向地面下方，俯仰 0 为水平（日出/日落）。
 	const float SunPitch = -FMath::Clamp(SunElev, -1.0f, 1.0f) * MaxCelestialPitch;
 	const float MoonPitch = -FMath::Clamp(MoonElev, -1.0f, 1.0f) * MaxCelestialPitch;
 
 	SunLight->SetRelativeRotation(FRotator(SunPitch, SunAzimuth, 0.0f));
 	MoonLight->SetRelativeRotation(FRotator(MoonPitch, MoonAzimuth, 0.0f));
 
-	// Dawn/dusk crossfade instead of a hard switch: sun and moon swap the role of
-	// primary atmosphere light smoothly across the horizon band, which removes the
-	// classic "primary-light pop" at 06:00/18:00.
+	// 晨昏用渐变交替而非硬切换：日月在地平线带上平滑互换
+	// 主大气光角色，从而消除 06:00/18:00 处
+	// 经典的「主光突变」。
 	const float SunWeight = FMath::SmoothStep(-0.04f, 0.08f, SunElev);
 	const float MoonWeight = FMath::SmoothStep(-0.04f, 0.08f, MoonElev);
 
@@ -248,7 +248,7 @@ void ATODSkyManager::ApplySunMoon(float TimeHours, const FTODWeatherState& State
 		}
 		else
 		{
-			// Warm the light as the sun approaches the horizon (time-of-day colour).
+			// 太阳接近地平线时让灯光变暖（昼夜时刻配色）。
 			const float Warmth = 1.0f - FMath::Clamp(SunElev / 0.35f, 0.0f, 1.0f);
 			const FLinearColor SunColor = FLinearColor::LerpUsingHSV(SunZenithColor, SunHorizonColor, Warmth);
 			SunLight->LightColor = SunColor.ToFColor(/*bSRGB*/ false);
@@ -302,12 +302,12 @@ void ATODSkyManager::RefreshSkyPreview()
 	const UWorld* World = GetWorld();
 	if (World && World->IsGameWorld())
 	{
-		return; // runtime is driven by the subsystem tick
+		return; // 运行时由子系统 tick 驱动
 	}
 
-	// Editor weather preview (issue #12): the weather subsystem does not exist
-	// in the editor world, so evaluate the picked weather file's curves here at
-	// PreviewTimeHours/24 and apply the same groups the runtime would apply.
+	// 编辑器天气预览（issue #12）：编辑器世界中不存在天气子系统，所以
+	// 在此按 PreviewTimeHours/24 求值所选天气文件的曲线，并应用
+	// 运行时同样会应用的那些组。
 	FTODWeatherState PreviewState;
 	FName PreviewWeatherName = NAME_None;
 	bool bHasPreviewWeather = false;
@@ -335,7 +335,7 @@ void ATODSkyManager::RefreshSkyPreview()
 
 	if (!bHasPreviewWeather)
 	{
-		// No preview weather: neutral modulation, constructor defaults.
+		// 无预览天气：中性调制，沿用构造函数默认值。
 		if (HeightFog)
 		{
 			HeightFog->SetFogDensity(0.0003f);
@@ -370,7 +370,7 @@ void ATODSkyManager::UpdateWeatherApplication()
 
 void ATODSkyManager::ApplyWeatherGroups(const FTODWeatherState& State)
 {
-	// Height fog: an enabled group owns every value; a disabled group is left untouched.
+	// 高度雾：启用的组接管全部值；未启用的组一概不碰。
 	if (State.bFogEnabled && HeightFog)
 	{
 		HeightFog->SetFogDensity(State.FogDensity);
@@ -398,7 +398,7 @@ void ATODSkyManager::ApplyWeatherGroups(const FTODWeatherState& State)
 		HeightFog->SetVolumetricFogStartDistance(State.VolumetricFogStartDistance);
 	}
 
-	// Cloud layer: coverage gates visibility for now; altitude curves move the layer.
+	// 云层：暂以云量决定可见性；高度曲线负责移动云层。
 	if (State.bCloudEnabled && VolumetricClouds)
 	{
 		VolumetricClouds->SetLayerBottomAltitude(State.CloudLayerBottomKm);
@@ -407,7 +407,7 @@ void ATODSkyManager::ApplyWeatherGroups(const FTODWeatherState& State)
 		VolumetricClouds->SetVisibility(bCloudsWanted);
 	}
 
-	// Physical atmosphere scattering.
+	// 物理大气散射。
 	if (State.bAtmosphereEnabled && SkyAtmosphere)
 	{
 		SkyAtmosphere->SetRayleighScatteringScale(State.RayleighScatteringScale);
@@ -423,7 +423,7 @@ void ATODSkyManager::ApplyWeatherGroups(const FTODWeatherState& State)
 		WindComponent->SetStrength(State.bWindEnabled ? State.WindStrength : 0.0f);
 	}
 
-	// Post process + particles are runtime-only; the editor preview leaves them alone.
+	// 后处理 + 粒子仅运行时生效；编辑器预览对它们不做处理。
 	const UWorld* World = GetWorld();
 	const bool bGameWorld = World && World->IsGameWorld();
 
@@ -536,7 +536,7 @@ void ATODSkyManager::UpdateWeatherEffects(const FTODWeatherState& State)
 		}
 	}
 
-	// Retire effects that left the table or faded to zero (including during transitions).
+	// 回收已离开特效表或淡到 0 的特效（包括过渡期间淡出的）。
 	for (auto It = WeatherEffectComponents.CreateIterator(); It; ++It)
 	{
 		if (Wanted.Contains(It.Key()) && It.Value())
@@ -581,7 +581,7 @@ void ATODSkyManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 	}
 	else if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, PreviewTimeHours))
 	{
-		// Scrubbing the slider re-lights the viewport without PIE.
+		// 拖动滑条即可无需 PIE 重新点亮视口。
 		RefreshSkyPreview();
 	}
 	else if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunRiseAzimuthDegrees) ||

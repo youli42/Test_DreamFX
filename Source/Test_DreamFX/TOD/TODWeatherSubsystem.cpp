@@ -15,7 +15,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogTODWeather, Log, All);
 
 namespace TODWeatherCVars
 {
-	/** Runtime override for the auto-change interval; <= 0 keeps the subsystem default. */
+	/** 自动切换间隔的运行时覆盖；<= 0 表示沿用子系统默认值。 */
 	TAutoConsoleVariable<float> CVarAutoChange(
 		TEXT("tod.AutoChangeSeconds"),
 		0.0f,
@@ -104,8 +104,8 @@ void UTODWeatherSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
-	// One weather = one UTODWeatherProfile asset under /Game/TOD/Profiles.
-	// Code-built fallbacks only kick in when no asset was authored yet.
+	// 一种天气 = /Game/TOD/Profiles 下的一个 UTODWeatherProfile 资产。
+	// 仅当尚未制作任何资产时，才启用代码构建的回退配置。
 	if (!DiscoverProfileAssets())
 	{
 		UE_LOG(LogTODWeather, Warning, TEXT("No UTODWeatherProfile assets under /Game/TOD/Profiles - falling back to built-in curve profiles."));
@@ -243,7 +243,7 @@ float UTODWeatherSubsystem::GetDayProgress() const
 			return FMath::Frac(FMath::Max(TOD->GetTimeOfDayHours(), 0.0f) / 24.0f);
 		}
 	}
-	// No clock: evaluate the files at noon so the curves are visible.
+	// 没有时钟：按正午求值天气文件，以便曲线效果可见。
 	return 0.5f;
 }
 
@@ -255,12 +255,12 @@ FTODWeatherState UTODWeatherSubsystem::EvaluateProfileAt(const FTODWeatherProfil
 	State.CurrentPreset = Data.Identity.Name;
 	State.bLightning = Data.Identity.bLightning;
 
-	// Ground state.
+	// 地表状态。
 	State.bSurfaceEnabled = Data.Surface.bEnabled;
 	State.Wetness = Data.Surface.Wetness.Evaluate(T, 0.0f);
 	State.SnowAmount = Data.Surface.SnowAmount.Evaluate(T, 0.0f);
 
-	// Height fog.
+	// 高度雾。
 	State.bFogEnabled = Data.Fog.bEnabled;
 	State.FogDensity = Data.Fog.Density.Evaluate(T, 0.0003f);
 	State.bHasFogInscatteringColor = Data.Fog.InscatteringColor.HasKeys();
@@ -272,7 +272,7 @@ FTODWeatherState UTODWeatherSubsystem::EvaluateProfileAt(const FTODWeatherProfil
 	State.SecondFogHeightOffset = Data.Fog.SecondFogHeightOffset.Evaluate(T, 0.0f);
 	State.SecondFogHeightFalloff = Data.Fog.SecondFogHeightFalloff.Evaluate(T, 0.2f);
 
-	// Sun / moon / ambient.
+	// 太阳 / 月亮 / 环境光。
 	State.bLightEnabled = Data.DirectionalLight.bEnabled;
 	State.SunIntensityScale = Data.DirectionalLight.SunIntensityScale.Evaluate(T, 1.0f);
 	State.MoonIntensityScale = Data.DirectionalLight.MoonIntensityScale.Evaluate(T, 1.0f);
@@ -414,7 +414,7 @@ FTODWeatherState UTODWeatherSubsystem::BlendStates(const FTODWeatherState& From,
 	State.PPIndirectLightingIntensity = LerpFloat(From.PPIndirectLightingIntensity, To.PPIndirectLightingIntensity, A);
 	State.PPIndirectLightingColor = FMath::Lerp(From.PPIndirectLightingColor, To.PPIndirectLightingColor, A);
 
-	// Effect table: union of both files, intensities cross-faded, descriptor taken from the target.
+	// 特效强度表：取两个文件的并集，强度做渐变交替，描述符取自目标文件。
 	State.Effects.Reset();
 	for (const TPair<FName, FTODWeatherEffectState>& Pair : To.Effects)
 	{
@@ -530,12 +530,12 @@ void UTODWeatherSubsystem::TickWeather(float DeltaSeconds)
 	}
 	else
 	{
-		// The active file is re-evaluated every frame: the 24h curves animate the
-		// weather even while the weather itself is "stable".
+		// 每帧都会重新求值激活文件：即使天气本身处于“稳定”状态，
+		// 24h 曲线仍在持续驱动天气变化。
 		Current = EvaluateProfileAt(TargetData, DayProgress);
 	}
 
-	// Weighted random scheduler (CVar override wins over the subsystem default).
+	// 加权随机调度器（CVar 覆盖优先于子系统默认值）。
 	float Interval = AutoChangeIntervalSeconds;
 	if (const float CVarInterval = TODWeatherCVars::CVarAutoChange.GetValueOnGameThread(); CVarInterval > 0.0f)
 	{
@@ -556,7 +556,7 @@ void UTODWeatherSubsystem::TickWeather(float DeltaSeconds)
 
 void UTODWeatherSubsystem::ApplyStateToMPC()
 {
-	// Lazy-load once; the asset lives in the project (created in the editor).
+	// 只惰性加载一次；该资产位于项目中（在编辑器里创建）。
 	if (!WeatherCollection)
 	{
 		WeatherCollection = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/Game/TOD/MPC/TOD_WeatherMPC.TOD_WeatherMPC"));

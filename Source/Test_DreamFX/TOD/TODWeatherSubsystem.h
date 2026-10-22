@@ -10,7 +10,7 @@
 class UNiagaraSystem;
 class UTODWeatherProfile;
 
-/** One evaluated row of the weather-effect intensity table. */
+/** 天气特效强度表中经求值后的一行。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherEffectState
 {
@@ -36,12 +36,12 @@ struct TEST_DREAMFX_API FTODWeatherEffectState
 };
 
 /**
- * Blended, frame-current weather values (what consumers should read).
+ * 混合后的当帧天气数值（使用者应当读取的内容）。
  *
- * Produced by evaluating the weather files at the current day progress
- * (0 = midnight, 0.5 = noon) and blending the previous file with the target
- * during a transition. Every group carries its own b*Enabled switch: disabled
- * groups must be left untouched by appliers ("只换雾、不动天空").
+ * 生成方式：按当前一天进度求值天气文件
+ * （0 = 午夜，0.5 = 正午），并在过渡期间把上一个文件与目标文件
+ * 混合。每个组都带有自己的 b*Enabled 启用开关：未启用的组
+ * 必须被应用方原样跳过（“只换雾、不动天空”）。
  */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherState
@@ -201,13 +201,13 @@ struct TEST_DREAMFX_API FTODWeatherState
 	TMap<FName, FTODWeatherEffectState> Effects;
 };
 
-/** Serializable weather state; games persist the preset name with their save. */
+/** 可序列化的天气状态；游戏将预设名随自身存档持久化。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherSnapshot
 {
 	GENERATED_BODY()
 
-	/** Preset the world was in at save time. */
+	/** 存档时世界所处的预设。 */
 	UPROPERTY(BlueprintReadWrite, Category="TOD|Weather")
 	FName PresetName = NAME_None;
 };
@@ -215,14 +215,14 @@ struct TEST_DREAMFX_API FTODWeatherSnapshot
 /**
  * UTODWeatherSubsystem
  *
- * Weather state machine: named weather files, weighted random scheduler, and
- * a forced-weather override. Each tick it evaluates the active weather file's
- * 24-hour curves at the current day progress, blends from the previous file
- * during a transition, and publishes the blended FTODWeatherState - plus the
- * five material-facing scalars in TOD_WeatherMPC.
+ * 天气状态机：具名天气文件、加权随机调度器和强制天气覆盖。
+ * 每 Tick 按当前一天进度求值激活天气文件的 24 小时曲线，
+ * 过渡期间从上一个文件混合过来，并发布混合后的
+ * FTODWeatherState——外加 TOD_WeatherMPC 中面向材质的
+ * 五个标量。
  *
- * The subsystem owns *state and blending only*; ATODSkyManager drives
- * TickWeather() from its Tick (single driver source, same as the clock).
+ * 本子系统*只负责状态与混合*；ATODSkyManager 在其 Tick 中
+ * 驱动 TickWeather()（唯一驱动者，与世界时钟一致）。
  */
 UCLASS()
 class TEST_DREAMFX_API UTODWeatherSubsystem : public UWorldSubsystem
@@ -234,63 +234,63 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
-	/** Advance blending and the auto-scheduler. Call once per frame from a driver actor. */
+	/** 推进混合与自动调度器。由驱动者 Actor 每帧调用一次。 */
 	void TickWeather(float DeltaSeconds);
 
-	/** Start blending to a named preset. Returns false if the name is unknown. */
+	/** 开始向指定预设混合。名称未知时返回 false。 */
 	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
 	bool ForceWeather(FName PresetName, float InTransitionSeconds = -1.0f);
 
-	/** Pick a preset by weighted random and transition to it. */
+	/** 以加权随机挑选一个预设并过渡到它。 */
 	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
 	void RandomizeWeather(float InTransitionSeconds = -1.0f);
 
-	/** Target preset name (what we are blending towards; equals CurrentPreset when idle). */
+	/** 目标预设名（正在混合向的目标；空闲时等于 CurrentPreset）。 */
 	UFUNCTION(BlueprintPure, Category="TOD|Weather")
 	FName GetTargetPresetName() const { return TargetData.Identity.Name; }
 
-	/** Blended current weather — read this every frame. */
+	/** 混合后的当前天气——每帧读取此值。 */
 	UFUNCTION(BlueprintPure, Category="TOD|Weather")
 	const FTODWeatherState& GetCurrentState() const { return Current; }
 
-	/** Current day progress [0,1] used to evaluate the curves. */
+	/** 用于求值曲线的当前一天进度 [0,1]。 */
 	float GetDayProgress() const;
 
-	/** Register a full weather file from code (equivalent to a UTODWeatherProfile asset). */
+	/** 从代码注册完整天气文件（等价于一个 UTODWeatherProfile 资产）。 */
 	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
 	void RegisterProfileFromData(const FTODWeatherProfileData& NewData);
 
-	/** Full profile data of a registered weather; false if the name is unknown. */
+	/** 已注册天气的完整配置文件数据；名称未知时返回 false。 */
 	UFUNCTION(BlueprintPure, Category="TOD|Weather")
 	bool GetProfileData(FName PresetName, FTODWeatherProfileData& OutData) const;
 
-	/** Every registered weather name (asset-discovered + code-registered). */
+	/** 所有已注册的天气名（资产发现 + 代码注册）。 */
 	UFUNCTION(BlueprintPure, Category="TOD|Weather")
 	TArray<FName> GetRegisteredPresetNames() const;
 
-	/** Snapshot the blend target for persistence (issue #10 save interface). */
+	/** 为持久化而对混合目标做快照（issue #10 存档接口）。 */
 	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
 	FTODWeatherSnapshot GetWeatherSnapshot() const;
 
-	/** Restore a snapshot; bInstant skips the transition (correct for load). */
+	/** 恢复快照；bInstant 表示跳过过渡（读档时应如此）。 */
 	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
 	bool ApplyWeatherSnapshot(const FTODWeatherSnapshot& Snapshot, bool bInstant = true);
 
-	/** Evaluate one weather file at a day progress. Pure; used by the editor preview too. */
+	/** 在给定一天进度下求值某个天气文件。纯函数；编辑器预览亦使用。 */
 	static FTODWeatherState EvaluateProfileAt(const FTODWeatherProfileData& Data, float DayProgress);
 
-	/** Blend two evaluated states (sky alpha, and a separate slower alpha for ground state). */
+	/** 混合两个已求值的状态（天空 alpha，以及地表状态单独的较慢 alpha）。 */
 	static FTODWeatherState BlendStates(const FTODWeatherState& From, const FTODWeatherState& To, float Alpha, float SurfaceAlpha);
 
-	/** Seconds between automatic weather changes; <= 0 disables auto scheduling. */
+	/** 自动切换天气的间隔秒数；<= 0 时禁用自动调度。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|天气", meta=(DisplayName="天气自动切换间隔(秒)"))
 	float AutoChangeIntervalSeconds = 0.0f;
 
-	/** Default transition duration when ForceWeather does not override it. */
+	/** ForceWeather 不覆盖时的默认过渡时长。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|天气", meta=(DisplayName="默认过渡时长(秒)"))
 	float TransitionSeconds = 3.0f;
 
-	/** Weather used on startup and when a snapshot is missing. */
+	/** 启动时以及缺少快照时所使用的天气。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|天气", meta=(DisplayName="默认天气"))
 	FName DefaultWeatherName = TEXT("ClearSky");
 
@@ -299,18 +299,18 @@ public:
 
 private:
 	void RegisterFallbackProfiles();
-	/** Populate from UTODWeatherProfile assets under /Game/TOD/Profiles. */
+	/** 从 /Game/TOD/Profiles 下的 UTODWeatherProfile 资产填充。 */
 	bool DiscoverProfileAssets();
 	void ApplyStateToMPC();
 	UTODWeatherSubsystem* AsInstance(const UWorld* World) const { return World ? World->GetSubsystem<UTODWeatherSubsystem>() : nullptr; }
 
-	/** Console helper: first game/PIE world with this subsystem. */
+	/** 控制台辅助：首个含本子系统的游戏/PIE 世界。 */
 	static UTODWeatherSubsystem* GetForConsole();
 
-	/** Registered weather files (asset-discovered and code-registered). */
+	/** 已注册的天气文件（资产发现与代码注册）。 */
 	TMap<FName, FTODWeatherProfileData> Profiles;
 
-	/** Asset-backed profiles are pinned here. */
+	/** 由资产支撑的配置文件在此固定。 */
 	UPROPERTY()
 	TMap<FName, TObjectPtr<UTODWeatherProfile>> ProfileAssets;
 
@@ -324,7 +324,7 @@ private:
 	float ActiveSurfaceSeconds = 20.0f;
 	float AutoChangeCountdown = 0.0f;
 
-	/** Soft reference to the weather MPC; resolved lazily. */
+	/** 天气 MPC 的软引用；延迟解析。 */
 	UPROPERTY()
 	TObjectPtr<UMaterialParameterCollection> WeatherCollection;
 };

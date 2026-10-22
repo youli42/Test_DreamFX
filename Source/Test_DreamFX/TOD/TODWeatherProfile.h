@@ -9,7 +9,7 @@
 
 class UNiagaraSystem;
 
-/** Project particle systems used by the built-in fallback weathers and legacy migration. */
+/** 内置回退天气与旧版迁移使用的项目粒子系统。 */
 namespace TODWeatherDefaults
 {
 	inline constexpr TCHAR RainSystemPath[] = TEXT("/Game/TOD/Niagara/NS_TOD_Rain.NS_TOD_Rain");
@@ -17,10 +17,10 @@ namespace TODWeatherDefaults
 }
 
 /**
- * Legacy flat preset (issue #10/#12). Kept ONLY as the migration input for
- * WP_*.uasset files authored before the curve refactor: the old assets still
- * carry a `Data.Core` tag, and UTODWeatherProfile::PostLoad converts it into
- * the curve groups below. Nothing new should author this struct.
+ * 旧版扁平预设（issue #10/#12）。仅保留作为曲线重构之前制作的
+ * WP_*.uasset 文件的迁移输入：旧资产仍带有 `Data.Core` 标签，
+ * 并由 UTODWeatherProfile::PostLoad 将其转换为下方的曲线分组。
+ * 任何新内容都不应再制作此结构体。
  */
 USTRUCT()
 struct TEST_DREAMFX_API FTODWeatherPreset
@@ -67,7 +67,7 @@ struct TEST_DREAMFX_API FTODWeatherPreset
 	float SnowIntensity = 0.0f;
 };
 
-/** Weather identity + scheduling metadata (not blended over time). */
+/** 天气身份 + 调度元数据（不随时间混合）。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherIdentity
 {
@@ -76,20 +76,20 @@ struct TEST_DREAMFX_API FTODWeatherIdentity
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|身份", meta=(DisplayName="天气名称"))
 	FName Name = NAME_None;
 
-	/** Relative chance of being picked by the random scheduler. */
+	/** 被随机调度器选中的相对概率。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|身份", meta=(DisplayName="调度权重", ClampMin="0.0"))
 	float ScheduleWeight = 1.0f;
 
-	/** Marks lightning-capable weather (thunderstorm). */
+	/** 标记伴有雷电的天气（雷暴）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|身份", meta=(DisplayName="伴有雷电"))
 	bool bLightning = false;
 
-	/** Longer blend window for ground accumulation (wetness/snow) than the sky. */
+	/** 地表累积（湿度/积雪）的混合窗口比天空的更长。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|身份", meta=(DisplayName="地表过渡时长(秒)", ClampMin="0.0"))
 	float SurfaceTransitionSeconds = 20.0f;
 };
 
-/** Ground state consumed by materials through the weather MPC (no particles). */
+/** 材质通过天气 MPC 读取的地表状态（不含粒子）。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherSurfaceGroup
 {
@@ -105,7 +105,7 @@ struct TEST_DREAMFX_API FTODWeatherSurfaceGroup
 	FTODWeatherCurve SnowAmount;
 };
 
-/** Height fog: density, inscattering colour, start/end distance, falloff and the second fog layer. */
+/** 高度雾：密度、内散射颜色、起终点距离、衰减以及第二层雾。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherFogGroup
 {
@@ -139,7 +139,7 @@ struct TEST_DREAMFX_API FTODWeatherFogGroup
 	FTODWeatherCurve SecondFogHeightFalloff;
 };
 
-/** Sun and moon modulation (our rig has two explicit celestial lights, unlike a single direct light). */
+/** 太阳与月亮的调制（本天空装置有两盏明确的天体光源，不同于单盏定向光）。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherDirectionalLightGroup
 {
@@ -160,7 +160,7 @@ struct TEST_DREAMFX_API FTODWeatherDirectionalLightGroup
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="月光颜色"))
 	FTODWeatherColorCurve MoonColor;
 
-	/** Kelvin. 0 = keep the time-of-day colour; > 0 forces a blackbody temperature. */
+	/** Kelvin。0 = 保留昼夜颜色；> 0 则强制指定黑体色温。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|方向光", meta=(DisplayName="阳光色温(K, 0=不启用)"))
 	FTODWeatherCurve SunTemperature;
 
@@ -174,7 +174,7 @@ struct TEST_DREAMFX_API FTODWeatherDirectionalLightGroup
 	FTODWeatherCurve SunBloomScale;
 };
 
-/** SkyLight intensity / colour / volumetric contribution. */
+/** 天光的强度 / 颜色 / 体积贡献。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherSkyLightGroup
 {
@@ -193,7 +193,7 @@ struct TEST_DREAMFX_API FTODWeatherSkyLightGroup
 	FTODWeatherCurve VolumetricScattering;
 };
 
-/** Volumetric fog knob set (albedo / distribution / extinction / view distance). */
+/** 体积雾参数组（反照率 / 分布 / 消光 / 可视距离）。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherVolumetricFogGroup
 {
@@ -218,7 +218,7 @@ struct TEST_DREAMFX_API FTODWeatherVolumetricFogGroup
 	FTODWeatherCurve StartDistance;
 };
 
-/** Global wind strength (Niagara / vegetation read it via MPC and the wind component). */
+/** 全局风力强度（Niagara / 植被通过 MPC 与风组件读取）。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherWindGroup
 {
@@ -231,7 +231,7 @@ struct TEST_DREAMFX_API FTODWeatherWindGroup
 	FTODWeatherCurve Strength;
 };
 
-/** SkyAtmosphere overrides (the physical scattering knobs). */
+/** 天空大气的覆盖参数（物理散射调节项）。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherAtmosphereGroup
 {
@@ -259,7 +259,7 @@ struct TEST_DREAMFX_API FTODWeatherAtmosphereGroup
 	FTODWeatherCurve HeightFogContribution;
 };
 
-/** Volumetric cloud layer: coverage and altitude. Material parameters stay on the material. */
+/** 体积云层：云量与高度。材质参数仍留在材质上。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherCloudGroup
 {
@@ -268,7 +268,7 @@ struct TEST_DREAMFX_API FTODWeatherCloudGroup
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="启用云层调节"))
 	bool bEnabled = false;
 
-	/** 0 = clear, 1 = fully overcast. Drives layer visibility today, material coverage later. */
+	/** 0 = 晴朗，1 = 完全阴天。目前驱动云层可见性，后续驱动材质云量。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|云层", meta=(DisplayName="云量"))
 	FTODWeatherCurve Coverage;
 
@@ -279,7 +279,7 @@ struct TEST_DREAMFX_API FTODWeatherCloudGroup
 	FTODWeatherCurve LayerHeightKm;
 };
 
-/** Post-process overrides (applied to a global unbound post-process volume owned by the sky rig). */
+/** 后处理覆盖参数（作用于天空装置持有的全局非绑定后处理体积）。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherPostProcessGroup
 {
@@ -320,10 +320,10 @@ struct TEST_DREAMFX_API FTODWeatherPostProcessGroup
 };
 
 /**
- * One row of the weather-effect intensity table.
- * The sky rig spawns and owns the system, writes Intensity * Scale into
- * ParameterName every frame and destroys the component once the intensity
- * fades out (weather change or time-of-day curve reaching zero).
+ * 天气特效强度表中的一行。
+ * 天空装置生成并持有该系统，每帧将 Intensity * Scale 写入
+ * ParameterName，并在强度淡出之后销毁组件
+ * （天气切换，或昼夜曲线归零）。
  */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherEffect
@@ -336,11 +336,11 @@ struct TEST_DREAMFX_API FTODWeatherEffect
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="粒子系统"))
 	TSoftObjectPtr<UNiagaraSystem> System;
 
-	/** User parameter written every frame (DreamFX rain/snow expose User.SpawnRateScale). */
+	/** 每帧写入的用户参数（DreamFX 雨/雪暴露 User.SpawnRateScale）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="参数名"))
 	FName ParameterName = TEXT("User.SpawnRateScale");
 
-	/** Weather-domain intensity for this effect; empty curve = effect dormant. */
+	/** 该效果在天气域内的强度；空曲线 = 特效不生效。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="强度曲线"))
 	FTODWeatherCurve Intensity;
 
@@ -354,7 +354,7 @@ struct TEST_DREAMFX_API FTODWeatherEffect
 	FRotator RelativeRotation = FRotator::ZeroRotator;
 };
 
-/** The weather-effect table; the group switch keeps "only fog, don't touch effects" variants possible. */
+/** 天气特效表；分组开关让"只换雾、不动特效"这类变体成为可能。 */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherEffectsGroup
 {
@@ -363,21 +363,21 @@ struct TEST_DREAMFX_API FTODWeatherEffectsGroup
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="启用天气特效"))
 	bool bEnabled = false;
 
-	/** 特效名 -> 强度. Keys are stable ids (Rain/Snow/...), not display names. */
+	/** 特效名 -> 强度。键是稳定 id（Rain/Snow/...），不是显示名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气|特效", meta=(DisplayName="特效强度表"))
 	TMap<FName, FTODWeatherEffect> Effects;
 };
 
 /**
- * One weather file: grouped, curve-driven parameters.
+ * 一个天气文件：按分组组织的曲线驱动参数。
  *
- * Every numeric field is a 24-hour curve (day progress [0,1]). Each group has
- * its own Enable switch: a weather file may drive only the groups it cares
- * about ("只换雾、不动天空"), and groups that are off are left untouched.
+ * 每个数值字段都是 24 小时曲线（一天进度 [0,1]）。每个分组都有
+ * 自己的启用开关：一个天气文件可以只驱动它关心的分组
+ * （"只换雾、不动天空"），关闭的分组保持原样、不受改动。
  *
- * Runtime = UTODWeatherSubsystem evaluates this data at the current day
- * progress and blends between the previous and target weather files; the sky
- * rig (ATODSkyManager) applies the blended result.
+ * 运行时 = UTODWeatherSubsystem 在当前一天进度处求值这些数据，并在
+ * 上一个与目标天气文件之间做混合；天空装置
+ * （ATODSkyManager）应用混合后的结果。
  */
 USTRUCT(BlueprintType)
 struct TEST_DREAMFX_API FTODWeatherProfileData
@@ -417,17 +417,17 @@ struct TEST_DREAMFX_API FTODWeatherProfileData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="天气特效"))
 	FTODWeatherEffectsGroup WeatherEffects;
 
-	/** 0 = legacy flat preset, 1 = curve composition. Migration writes 1. */
+	/** 0 = 旧版扁平预设，1 = 曲线组合。迁移会写入 1。 */
 	UPROPERTY(VisibleAnywhere, Category="天气", meta=(DisplayName="数据版本"))
 	int32 DataVersion = 0;
 
-	/** Legacy migration source (old WP_* assets carry this tag). Never authored. */
+	/** 旧版迁移来源（旧 WP_* 资产带有该标签）。不应再被制作。 */
 	UPROPERTY()
 	FTODWeatherPreset Core;
 
 	/**
-	 * Convert the legacy flat Core preset into curve groups. Deterministic:
-	 * the same old asset always produces the same curves. Safe to call twice.
+	 * 把旧版扁平的 Core 预设转换为曲线分组。结果是确定的：
+	 * 同一个旧资产总是生成同样的曲线，重复调用两次也安全。
 	 */
 	void MigrateLegacyCore();
 };
@@ -435,10 +435,10 @@ struct TEST_DREAMFX_API FTODWeatherProfileData
 /**
  * UTODWeatherProfile
  *
- * One asset == one weather file (issue #12). Author the groups/curves in the
- * editor; the weather subsystem discovers these under /Game/TOD/Profiles at
- * startup (cooked builds read the asset registry). Weather names come from
- * Data.Identity.Name and are what `tod.ForceWeather <name>` accepts.
+ * 一个资产 == 一个天气文件（issue #12）。在编辑器中制作分组与曲线；
+ * 天气子系统在启动时于 /Game/TOD/Profiles 下发现这些资产
+ * （打包构建读取资产注册表）。天气名称取自 Data.Identity.Name，
+ * 也就是 `tod.ForceWeather <name>` 接受的名称。
  */
 UCLASS(BlueprintType, hidecategories=Object, meta=(DisplayName="TOD Weather Profile"))
 class TEST_DREAMFX_API UTODWeatherProfile : public UPrimaryDataAsset
@@ -451,7 +451,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="天气", meta=(DisplayName="天气配置"))
 	FTODWeatherProfileData Data;
 
-	/** Weather name used to select this file (Data.Identity.Name). */
+	/** 用于选择该天气文件的天气名称（Data.Identity.Name）。 */
 	UFUNCTION(BlueprintPure, Category="TOD|Weather")
 	FName GetProfileName() const { return Data.Identity.Name; }
 };
