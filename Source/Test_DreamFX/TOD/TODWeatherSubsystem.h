@@ -4,68 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "TODWeatherProfile.h"
 #include "TODWeatherSubsystem.generated.h"
 
-/**
- * One named weather preset. Values are absolute targets; the subsystem blends
- * from the current state to the target over the transition duration.
- */
-USTRUCT(BlueprintType)
-struct FTODWeatherPreset
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather")
-	FName Name = NAME_None;
-
-	/** Relative chance of being picked by the random scheduler. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0"))
-	float ScheduleWeight = 1.0f;
-
-	/** 0 = clear, 1 = fully overcast. Drives cloud visibility today, cloud material in M3+. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0", ClampMax="1.0"))
-	float CloudCoverage = 0.2f;
-
-	/** Absolute ExponentialHeightFog fog density. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather")
-	float FogDensity = 0.0003f;
-
-	/** Global wind strength (Niagara / vegetation consumers read this via MPC in M3+). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0"))
-	float WindStrength = 0.3f;
-
-	/** Ground wetness 0-1 (drives the Wetness MPC parameter; ground materials in M3+). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0", ClampMax="1.0"))
-	float Wetness = 0.0f;
-
-	/** Ground snow amount 0-1. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0", ClampMax="1.0"))
-	float SnowAmount = 0.0f;
-
-	/** Multiplier on the sun's computed intensity. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0"))
-	float SunIntensityScale = 1.0f;
-
-	/** Multiplier on the moon's computed intensity. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0"))
-	float MoonIntensityScale = 1.0f;
-
-	/** Multiplier on the SkyLight intensity. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0"))
-	float SkyLightScale = 1.0f;
-
-	/** Marks lightning-capable weather (thunderstorm). Consumed by M4. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather")
-	bool bLightning = false;
-
-	/** Rain particle intensity 0-1; drives NS_TOD_Rain User.SpawnRateScale. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0", ClampMax="1.0"))
-	float RainIntensity = 0.0f;
-
-	/** Snow particle intensity 0-1; drives NS_TOD_Snow User.SpawnRateScale. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather", meta=(ClampMin="0.0", ClampMax="1.0"))
-	float SnowIntensity = 0.0f;
-};
+// FTODWeatherPreset moved to TODWeatherProfile.h with issue #12
+// (one weather = one UTODWeatherProfile asset).
 
 /**
  * Blended, frame-current weather values (what consumers should read).
@@ -129,7 +72,7 @@ struct FTODWeatherSnapshot
  * Weather state machine: named presets, timed transitions (no hard cuts), a
  * weighted random scheduler and a forced-weather override. Outputs the blended
  * FTODWeatherState each tick and pushes scalar parameters into the project's
- * Material Parameter Collection (/Game/TOD/TOD_WeatherMPC) so ground/cloud
+ * Material Parameter Collection (/Game/TOD/MPC/TOD_WeatherMPC) so ground/cloud
  * materials can react without per-material plumbing.
  *
  * The subsystem owns *state and blending only*; ATODSkyManager drives
@@ -168,6 +111,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
 	void RegisterPreset(const FTODWeatherPreset& Preset);
 
+	/** Register a full weather profile from code (issue #12) - equivalent to a
+	 *  UTODWeatherProfile asset: Core feeds the state machine, the other panels
+	 *  are stored for the appliers (M2-M4). */
+	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
+	void RegisterProfileFromData(const FTODWeatherProfileData& NewData);
+
+	/** Full profile data of a registered weather; false if the name is unknown. */
+	UFUNCTION(BlueprintPure, Category="TOD|Weather")
+	bool GetProfileData(FName PresetName, FTODWeatherProfileData& OutData) const;
+
+	/** Every registered weather name (asset-discovered + code-registered). */
+	UFUNCTION(BlueprintPure, Category="TOD|Weather")
+	TArray<FName> GetRegisteredPresetNames() const;
+
 	/** Snapshot the blend target for persistence (issue #10 save interface). */
 	UFUNCTION(BlueprintCallable, Category="TOD|Weather")
 	FTODWeatherSnapshot GetWeatherSnapshot() const;
@@ -177,11 +134,11 @@ public:
 	bool ApplyWeatherSnapshot(const FTODWeatherSnapshot& Snapshot, bool bInstant = true);
 
 	/** Seconds between automatic weather changes; <= 0 disables auto scheduling. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|天气", meta=(DisplayName="天气自动切换间隔(秒)"))
 	float AutoChangeIntervalSeconds = 0.0f;
 
 	/** Default transition duration when ForceWeather does not override it. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|Weather")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="TOD|天气", meta=(DisplayName="默认过渡时长(秒)"))
 	float TransitionSeconds = 3.0f;
 
 	static void HandleConsoleForceWeather(const TArray<FString>& Args);
@@ -189,6 +146,10 @@ public:
 
 private:
 	void RegisterDefaultPresets();
+	/** Populate from UTODWeatherProfile assets (issue #12: one weather = one
+	 *  asset, discovered under /Game/TOD/Profiles). Returns false when the
+	 *  search found nothing, letting the caller fall back to built-ins. */
+	bool DiscoverProfileAssets();
 	void ApplyStateToMPC();
 	UTODWeatherSubsystem* AsInstance(const UWorld* World) const { return World ? World->GetSubsystem<UTODWeatherSubsystem>() : nullptr; }
 
@@ -199,6 +160,15 @@ private:
 	FTODWeatherPreset TargetPreset;
 	FTODWeatherState FromState;
 	TMap<FName, FTODWeatherPreset> Presets;
+
+	/** Full profile per weather: Core duplicates the Presets map, the rest of
+	 *  the panels (atmosphere/clouds/PP/Niagara) live here for the appliers. */
+	UPROPERTY()
+	TMap<FName, TObjectPtr<UTODWeatherProfile>> ProfileAssets;
+
+	/** Code-registered profiles kept alive (asset-backed ones need no pinning). */
+	UPROPERTY()
+	TArray<TObjectPtr<UTODWeatherProfile>> InMemoryProfiles;
 
 	bool bTransitioning = false;
 	float TransitionElapsed = 0.0f;

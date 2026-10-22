@@ -2,10 +2,12 @@
 
 #include "TODWeatherSubsystem.h"
 
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "Kismet/KismetMaterialLibrary.h"
 #include "Materials/MaterialParameterCollection.h"
+#include "UObject/Package.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTODWeather, Log, All);
 
@@ -42,7 +44,14 @@ bool UTODWeatherSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 void UTODWeatherSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	RegisterDefaultPresets();
+
+	// Issue #12: one weather = one UTODWeatherProfile asset. Built-in C++
+	// presets are only the fallback for when no assets were authored yet.
+	if (!DiscoverProfileAssets())
+	{
+		UE_LOG(LogTODWeather, Warning, TEXT("No UTODWeatherProfile assets discovered under /Game/TOD/Profiles - falling back to built-in C++ presets."));
+		RegisterDefaultPresets();
+	}
 
 	// Seed the blended state from the first preset so frame 0 is coherent.
 	const FTODWeatherPreset* First = Presets.Find(TEXT("ClearSky"));
@@ -170,6 +179,80 @@ void UTODWeatherSubsystem::RegisterPreset(const FTODWeatherPreset& Preset)
 		return;
 	}
 	Presets.Add(Preset.Name, Preset);
+}
+
+bool UTODWeatherSubsystem::DiscoverProfileAssets()
+{
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+
+	TArray<FAssetData> FoundAssets;
+	AssetRegistryModule.Get().GetAssetsByClass(
+		UTODWeatherProfile::StaticClass()->GetClassPathName(), FoundAssets, /*bRecursive=*/true);
+
+	int32 Registered = 0;
+	for (const FAssetData& AssetData : FoundAssets)
+	{
+		UTODWeatherProfile* Profile = Cast<UTODWeatherProfile>(AssetData.GetAsset());
+		if (!Profile)
+		{
+			continue;
+		}
+		if (Profile->Data.Core.Name.IsNone())
+		{
+			UE_LOG(LogTODWeather, Warning, TEXT("Weather profile asset %s has no Core.Name - skipped."), *Profile->GetPathName());
+			continue;
+		}
+		RegisterPreset(Profile->Data.Core);
+		ProfileAssets.Add(Profile->Data.Core.Name, Profile);
+		++Registered;
+	}
+
+	if (Registered > 0)
+	{
+		UE_LOG(LogTODWeather, Log, TEXT("Discovered %d weather profile asset(s)."), Registered);
+	}
+	return Registered > 0;
+}
+
+void UTODWeatherSubsystem::RegisterProfileFromData(const FTODWeatherProfileData& NewData)
+{
+	if (NewData.Core.Name.IsNone())
+	{
+		UE_LOG(LogTODWeather, Warning, TEXT("RegisterProfileFromData refused a profile with no Core.Name."));
+		return;
+	}
+
+	UTODWeatherProfile* Profile = NewObject<UTODWeatherProfile>(this,
+		MakeUniqueObjectName(this, UTODWeatherProfile::StaticClass(),
+			*FString::Printf(TEXT("Profile_%s"), *NewData.Core.Name.ToString())));
+	Profile->Data = NewData;
+	InMemoryProfiles.Add(Profile);
+
+	RegisterPreset(NewData.Core);
+	ProfileAssets.Add(NewData.Core.Name, Profile);
+	UE_LOG(LogTODWeather, Log, TEXT("Weather profile '%s' registered from code."), *NewData.Core.Name.ToString());
+}
+
+bool UTODWeatherSubsystem::GetProfileData(FName PresetName, FTODWeatherProfileData& OutData) const
+{
+	const TObjectPtr<UTODWeatherProfile>* Found = ProfileAssets.Find(PresetName);
+	if (!Found || !*Found)
+	{
+		return false;
+	}
+	OutData = (*Found)->Data;
+	return true;
+}
+
+TArray<FName> UTODWeatherSubsystem::GetRegisteredPresetNames() const
+{
+	TArray<FName> Names;
+	Names.Reserve(Presets.Num());
+	for (const TPair<FName, FTODWeatherPreset>& Pair : Presets)
+	{
+		Names.Add(Pair.Key);
+	}
+	return Names;
 }
 
 FTODWeatherSnapshot UTODWeatherSubsystem::GetWeatherSnapshot() const
@@ -317,7 +400,7 @@ void UTODWeatherSubsystem::ApplyStateToMPC()
 	// Lazy-load once; the asset lives in the project (created in the editor).
 	if (!WeatherCollection)
 	{
-		WeatherCollection = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/Game/TOD/TOD_WeatherMPC.TOD_WeatherMPC"));
+		WeatherCollection = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/Game/TOD/MPC/TOD_WeatherMPC.TOD_WeatherMPC"));
 	}
 	if (!WeatherCollection)
 	{

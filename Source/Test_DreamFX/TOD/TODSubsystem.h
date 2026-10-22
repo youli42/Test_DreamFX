@@ -94,7 +94,7 @@ private:
 	float TimeOfDayHours = 9.0f;
 
 	/** Real minutes per in-game day; drives TimeScaleHoursPerSecond (24 / (60*minutes)). */
-	UPROPERTY(EditAnywhere, Category="TOD")
+	UPROPERTY(EditAnywhere, Category="TOD|时间", meta=(DisplayName="一天时长(真实分钟)"))
 	float DayLengthMinutes = 4.0f;
 
 	/** When false, AdvanceTime is a no-op (clock still settable). */

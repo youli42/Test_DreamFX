@@ -4,6 +4,7 @@
 
 #include "TODSubsystem.h"
 #include "TODWeatherSubsystem.h"
+#include "TODWeatherProfile.h"
 
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -258,16 +259,66 @@ void ATODSkyManager::RefreshSkyPreview()
 		return; // runtime is driven by the subsystem tick
 	}
 
+	// Editor weather preview (issue #12): the weather subsystem does not exist
+	// in the editor world, so apply the picked profile's Core modulation here
+	// directly - the same multipliers the runtime would feed ApplySunMoon.
+	float SunScale = 1.0f;
+	float MoonScale = 1.0f;
+	float SkyScale = 1.0f;
+	FName PreviewWeatherName = NAME_None;
+	if (!PreviewWeatherProfile.IsNull())
+	{
+		const UTODWeatherProfile* Profile = PreviewWeatherProfile.Get();
+		if (!Profile)
+		{
+			Profile = Cast<UTODWeatherProfile>(StaticLoadObject(UTODWeatherProfile::StaticClass(), nullptr,
+				*PreviewWeatherProfile.ToSoftObjectPath().GetAssetPathString()));
+		}
+		if (Profile)
+		{
+			const FTODWeatherPreset& Core = Profile->Data.Core;
+			SunScale = Core.SunIntensityScale;
+			MoonScale = Core.MoonIntensityScale;
+			SkyScale = Core.SkyLightScale;
+			PreviewWeatherName = Core.Name;
+
+			if (HeightFog)
+			{
+				HeightFog->FogDensity = Core.FogDensity;
+			}
+			if (VolumetricClouds)
+			{
+				VolumetricClouds->SetVisibility(bEnableVolumetricCloud && Core.CloudCoverage > 0.02f);
+			}
+		}
+		else
+		{
+			UE_LOG(LogTODSky, Warning, TEXT("Preview weather profile '%s' failed to load."), *PreviewWeatherProfile.ToSoftObjectPath().ToString());
+		}
+	}
+	else
+	{
+		// No preview weather: neutral modulation, constructor defaults.
+		if (HeightFog)
+		{
+			HeightFog->FogDensity = 0.0003f;
+		}
+		if (VolumetricClouds)
+		{
+			VolumetricClouds->SetVisibility(bEnableVolumetricCloud);
+		}
+	}
+
 	float SunElev = 0.0f;
 	float MoonElev = 0.0f;
 	float SunAzimuth = 0.0f;
 	float MoonAzimuth = 0.0f;
 	ComputeSunMoonState(PreviewTimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
-	ApplySunMoon(PreviewTimeHours, 1.0f, 1.0f, 1.0f);
+	ApplySunMoon(PreviewTimeHours, SunScale, MoonScale, SkyScale);
 
-	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f @az %.0f, moon elev %.2f @az %.0f."),
-		PreviewTimeHours, SunElev, SunAzimuth, MoonElev, MoonAzimuth);
+	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f @az %.0f, moon elev %.2f @az %.0f, weather '%s' sunScale %.2f."),
+		PreviewTimeHours, SunElev, SunAzimuth, MoonElev, MoonAzimuth, *PreviewWeatherName.ToString(), SunScale);
 }
 
 void ATODSkyManager::UpdateWeatherApplication()
@@ -341,7 +392,8 @@ void ATODSkyManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunTiltDegrees) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPhaseOffsetDegrees) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, SunPeakIntensity) ||
-		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPeakIntensity))
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPeakIntensity) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, PreviewWeatherProfile))
 	{
 		RefreshSkyPreview();
 	}
