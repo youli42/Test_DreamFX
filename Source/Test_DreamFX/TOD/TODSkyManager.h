@@ -13,6 +13,7 @@ class USkyAtmosphereComponent;
 class UVolumetricCloudComponent;
 class UExponentialHeightFogComponent;
 class UWindDirectionalSourceComponent;
+class UPostProcessComponent;
 class APostProcessVolume;
 class UTODSubsystem;
 class UTODWeatherSubsystem;
@@ -26,6 +27,8 @@ struct FTODWeatherState;
  *  - 两盏定向光注册为大气太阳光（索引 0 = 太阳，1 = 月亮）
  *  - SkyLight 采用实时捕获模式，使环境光跟随天空
  *  - SkyAtmosphere + VolumetricCloud + ExponentialHeightFog 组件
+ *  - 时刻曝光限制：夜间抬高自动曝光适应下限（EV100），
+ *    防止眼睛适应把黑夜补偿回白天的亮度
  *
  * 该 Actor 每 tick 推进世界时钟（经由子系统），然后
  * 定位太阳与月亮并设置其颜色。完全不使用 Blueprint：可直接放到
@@ -115,6 +118,35 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|月亮", meta=(DisplayName="月相偏移(度)", ClampMin="-180.0", ClampMax="180.0"))
 	float MoonPhaseOffsetDegrees = 0.0f;
 
+	/* ───────────────── 时刻曝光限制 ─────────────────
+	 * 自动曝光（眼睛适应）默认允许在 EV100 [-10, +20] 内无限补偿
+	 * （项目启用了 ExtendDefaultLuminanceRange），于是夜幕会被
+	 * 拉亮到与白天相近。本组在夜间把适应范围收窄为
+	 * [夜间下限, 夜间上限]（两者相等即完全锁定夜景亮度），
+	 * 白天恢复 [白天下限, 白天上限]（引擎默认）；
+	 * 晨昏带内平滑过渡。自动曝光的测光与平滑过渡全部保留。 */
+
+	/** 启用随时刻收缩的曝光适应范围。关闭时天气后处理组的曝光曲线重新接管。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|曝光", meta=(DisplayName="启用时刻曝光限制"))
+	bool bEnableTimeOfDayExposure = true;
+
+	/** 白天（太阳升高后）自动曝光适应下限（EV100）。-10 = 引擎默认，不限制。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|曝光", meta=(DisplayName="白天曝光下限(EV100)", ClampMin="-10.0", ClampMax="20.0"))
+	float DayExposureMinEV100 = -10.0f;
+
+	/** 白天自动曝光适应上限（EV100）。+20 = 引擎默认，不限制。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|曝光", meta=(DisplayName="白天曝光上限(EV100)", ClampMin="-10.0", ClampMax="20.0"))
+	float DayExposureMaxEV100 = 20.0f;
+
+	/** 夜间曝光适应下限（EV100）：越大夜景越暗（PIE 实测 −5 近乎全黑、−1.5 为自然月夜）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|曝光", meta=(DisplayName="夜间曝光下限(EV100)", ClampMin="-10.0", ClampMax="20.0"))
+	float NightExposureMinEV100 = -1.5f;
+
+	/** 夜间曝光适应上限（EV100）。与下限相等则夜晚亮度完全锁定（推荐）；
+	 *  调宽窗口（如 -3 / -1）可给夜晚室内保留少量适应余量。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|曝光", meta=(DisplayName="夜间曝光上限(EV100)", ClampMin="-10.0", ClampMax="20.0"))
+	float NightExposureMaxEV100 = -1.5f;
+
 	/** 施加到天体光源上的最大俯仰幅度（避开万向节死锁）。 */
 	static constexpr float MaxCelestialPitch = 89.0f;
 
@@ -134,6 +166,9 @@ private:
 
 	/** 将混合后的天气应用到雾、云层、大气、风与后处理。 */
 	void UpdateWeatherApplication();
+
+	/** 按太阳高度角把时刻曝光限制写入 ExposurePostProcess（昼/夜 EV100 下限平滑过渡）。 */
+	void ApplyTimeOfDayExposure();
 
 	UTODSubsystem* GetTOD() const;
 	UTODWeatherSubsystem* GetTODWeather() const;
@@ -166,6 +201,11 @@ public:
 	/** 由当前天气文件风组驱动的全局风源。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="TOD|组件", meta=(DisplayName="全局风源"))
 	TObjectPtr<UWindDirectionalSourceComponent> WindComponent;
+
+	/** 时刻曝光限制载体：随 Actor 序列化的非绑定后处理组件，编辑器预览与运行时都生效。
+	 *  只写入曝光适应下限（EV100）；其余后处理仍归天气体积。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="TOD|组件", meta=(DisplayName="时刻曝光后处理"))
+	TObjectPtr<UPostProcessComponent> ExposurePostProcess;
 
 	/* ───────────────── 天气应用 ───────────────── */
 
@@ -200,4 +240,7 @@ private:
 	FLinearColor MoonColor = FLinearColor(0.60f, 0.70f, 1.00f);
 
 	bool bSkyConfigured = false;
+
+	/** ApplySunMoon 最近一次求值的太阳高度角正弦，供时刻曝光限制随晨昏过渡。 */
+	float CachedSunElevation = 0.0f;
 };

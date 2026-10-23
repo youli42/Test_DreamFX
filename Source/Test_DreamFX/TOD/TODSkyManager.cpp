@@ -6,6 +6,7 @@
 #include "TODWeatherSubsystem.h"
 #include "TODWeatherProfile.h"
 
+#include "Components/PostProcessComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
@@ -89,6 +90,14 @@ ATODSkyManager::ATODSkyManager()
 	WindComponent = CreateDefaultSubobject<UWindDirectionalSourceComponent>(TEXT("Wind"));
 	WindComponent->SetupAttachment(Root);
 	WindComponent->SetStrength(0.0f);
+
+	// 时刻曝光限制载体：非绑定后处理组件，随 Actor 序列化，
+	// 因此编辑器预览（无天气体积）与运行时都同样生效。
+	// 高优先级 = 时刻 clamp 是硬约束；它只写曝光下限，其余后处理归天气体积。
+	ExposurePostProcess = CreateDefaultSubobject<UPostProcessComponent>(TEXT("ExposurePostProcess"));
+	ExposurePostProcess->SetupAttachment(Root);
+	ExposurePostProcess->bUnbound = true;
+	ExposurePostProcess->Priority = 1000.0f;
 }
 
 void ATODSkyManager::BeginPlay()
@@ -97,6 +106,9 @@ void ATODSkyManager::BeginPlay()
 
 	ConfigureSky();
 	EnsureWeatherPostProcess();
+	// 首帧渲染前先求值一次天体与时刻曝光，避免第一帧仍以旧曝光下限显示。
+	UpdateCelestials();
+	ApplyTimeOfDayExposure();
 	if (UTODSubsystem* TOD = GetTOD())
 	{
 		UE_LOG(LogTODSky, Log, TEXT("TODSkyManager online. Clock %.2fh, scale %.3fh/s."),
@@ -160,6 +172,7 @@ void ATODSkyManager::Tick(float DeltaSeconds)
 
 	UpdateCelestials();
 	UpdateWeatherApplication();
+	ApplyTimeOfDayExposure();
 }
 
 void ATODSkyManager::ComputeSunMoonState(float TimeHours, float SunRiseAzimuth, float MoonPhaseOffset, float SunTilt,
@@ -215,6 +228,9 @@ void ATODSkyManager::ApplySunMoon(float TimeHours, const FTODWeatherState& State
 	float MoonAzimuth = 0.0f;
 	ComputeSunMoonState(TimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
+
+	// 供 ApplyTimeOfDayExposure 使用（晨昏带上与主光同步过渡）。
+	CachedSunElevation = SunElev;
 
 	// 定向光沿其旋转后的 -X 轴照射：负俯仰把灯光
 	// 指向地面下方，俯仰 0 为水平（日出/日落）。
@@ -325,7 +341,6 @@ void ATODSkyManager::RefreshSkyPreview()
 			PreviewState = UTODWeatherSubsystem::EvaluateProfileAt(Profile->Data, DayProgress);
 			PreviewWeatherName = PreviewState.CurrentPreset;
 			bHasPreviewWeather = true;
-			ApplyWeatherGroups(PreviewState);
 		}
 		else
 		{
@@ -352,10 +367,20 @@ void ATODSkyManager::RefreshSkyPreview()
 	float MoonAzimuth = 0.0f;
 	ComputeSunMoonState(PreviewTimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
-	ApplySunMoon(PreviewTimeHours, PreviewState);
 
-	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f @az %.0f, moon elev %.2f @az %.0f, weather '%s' sunScale %.2f."),
-		PreviewTimeHours, SunElev, SunAzimuth, MoonElev, MoonAzimuth, *PreviewWeatherName.ToString(), PreviewState.SunIntensityScale);
+	// 与运行时 Tick 相同的顺序：先天体（更新 CachedSunElevation），
+	// 再天气组（编辑器世界只生效雾/云/大气/风），最后时刻曝光——
+	// 编辑器拖动「预览时刻」即可直接看到夜间曝光 clamp，无需 PIE。
+	ApplySunMoon(PreviewTimeHours, PreviewState);
+	ApplyWeatherGroups(PreviewState);
+	ApplyTimeOfDayExposure();
+
+	const bool bExposureActive = ExposurePostProcess && ExposurePostProcess->Settings.bOverride_AutoExposureMinBrightness;
+	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f @az %.0f, moon elev %.2f @az %.0f, weather '%s' sunScale %.2f, exposureMin %s"),
+		PreviewTimeHours, SunElev, SunAzimuth, MoonElev, MoonAzimuth, *PreviewWeatherName.ToString(), PreviewState.SunIntensityScale,
+		bExposureActive
+			? *FString::Printf(TEXT("%.1f EV100"), ExposurePostProcess->Settings.AutoExposureMinBrightness)
+			: TEXT("off (engine default)"));
 }
 
 void ATODSkyManager::UpdateWeatherApplication()
@@ -366,6 +391,35 @@ void ATODSkyManager::UpdateWeatherApplication()
 		return;
 	}
 	ApplyWeatherGroups(Weather->GetCurrentState());
+}
+
+void ATODSkyManager::ApplyTimeOfDayExposure()
+{
+	if (!ExposurePostProcess)
+	{
+		return;
+	}
+
+	if (!bEnableTimeOfDayExposure)
+	{
+		// 关闭时刻限制：撤下本组件的曝光范围覆盖，天气后处理组的曝光曲线重新接管。
+		ExposurePostProcess->Settings.bOverride_AutoExposureMinBrightness = false;
+		ExposurePostProcess->Settings.bOverride_AutoExposureMaxBrightness = false;
+		return;
+	}
+
+	// 与日月主光切换同一晨昏带（见 ApplySunMoon 的 SunWeight/MoonWeight）：
+	// 适应范围在昼/夜值之间平滑过渡，日出日落无跳变。
+	// 夜间下限=上限（默认）时曝光被钉死在单一 EV，夜景亮度确定、
+	// 不随月光/云量/雾的亮度波动漂移；调宽窗口可为夜晚室内保留适应余量。
+	const float DayFactor = FMath::SmoothStep(-0.04f, 0.08f, CachedSunElevation);
+	const float MinEV = FMath::Lerp(NightExposureMinEV100, DayExposureMinEV100, DayFactor);
+	const float MaxEV = FMath::Lerp(NightExposureMaxEV100, DayExposureMaxEV100, DayFactor);
+
+	ExposurePostProcess->Settings.bOverride_AutoExposureMinBrightness = true;
+	ExposurePostProcess->Settings.AutoExposureMinBrightness = MinEV;
+	ExposurePostProcess->Settings.bOverride_AutoExposureMaxBrightness = true;
+	ExposurePostProcess->Settings.AutoExposureMaxBrightness = MaxEV;
 }
 
 void ATODSkyManager::ApplyWeatherGroups(const FTODWeatherState& State)
@@ -435,10 +489,28 @@ void ATODSkyManager::ApplyWeatherGroups(const FTODWeatherState& State)
 			FPostProcessSettings& PP = WeatherPostProcess->Settings;
 			PP.bOverride_AutoExposureBias = true;
 			PP.AutoExposureBias = State.PPExposureBias;
-			PP.bOverride_AutoExposureMinBrightness = true;
-			PP.AutoExposureMinBrightness = State.PPExposureMinBrightness;
-			PP.bOverride_AutoExposureMaxBrightness = true;
-			PP.AutoExposureMaxBrightness = State.PPExposureMaxBrightness;
+			if (bEnableTimeOfDayExposure)
+			{
+				// 时刻曝光限制启用时拥有曝光下限/上限所有权；
+				// 撤掉体积上的旧覆盖，避免双写打架（组件优先级更高）。
+				PP.bOverride_AutoExposureMinBrightness = false;
+				PP.bOverride_AutoExposureMaxBrightness = false;
+			}
+			else
+			{
+				// 曲线无键 = 作者未制作曝光：撤掉覆盖保持引擎默认，
+				// 而不是把 fallback 数值写上（旧 fallback -1/+3 会把白天钳到过曝）。
+				PP.bOverride_AutoExposureMinBrightness = State.bHasPPExposureMin;
+				if (State.bHasPPExposureMin)
+				{
+					PP.AutoExposureMinBrightness = State.PPExposureMinBrightness;
+				}
+				PP.bOverride_AutoExposureMaxBrightness = State.bHasPPExposureMax;
+				if (State.bHasPPExposureMax)
+				{
+					PP.AutoExposureMaxBrightness = State.PPExposureMaxBrightness;
+				}
+			}
 			PP.bOverride_ColorSaturation = true;
 			PP.ColorSaturation = FVector4(State.PPSaturation, State.PPSaturation, State.PPSaturation, 1.0);
 			PP.bOverride_ColorContrast = true;
@@ -591,6 +663,15 @@ void ATODSkyManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, MoonPeakIntensity) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, PreviewWeatherProfile))
 	{
+		RefreshSkyPreview();
+	}
+	else if (Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, bEnableTimeOfDayExposure) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, DayExposureMinEV100) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, DayExposureMaxEV100) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, NightExposureMinEV100) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, NightExposureMaxEV100))
+	{
+		// 曝光参数改动：编辑器里即时重放预览；运行时下一 tick 自然生效。
 		RefreshSkyPreview();
 	}
 }
