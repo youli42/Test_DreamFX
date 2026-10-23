@@ -317,8 +317,10 @@ FTODWeatherState UTODWeatherSubsystem::EvaluateProfileAt(const FTODWeatherProfil
 
 	State.bPostProcessEnabled = Data.PostProcess.bEnabled;
 	State.PPExposureBias = Data.PostProcess.ExposureBias.Evaluate(T, 1.0f);
-	State.PPExposureMinBrightness = Data.PostProcess.ExposureMinBrightness.Evaluate(T, -1.0f);
-	State.PPExposureMaxBrightness = Data.PostProcess.ExposureMaxBrightness.Evaluate(T, 3.0f);
+	State.bHasPPExposureMin = Data.PostProcess.ExposureMinBrightness.HasKeys();
+	State.PPExposureMinBrightness = Data.PostProcess.ExposureMinBrightness.Evaluate(T, -10.0f);
+	State.bHasPPExposureMax = Data.PostProcess.ExposureMaxBrightness.HasKeys();
+	State.PPExposureMaxBrightness = Data.PostProcess.ExposureMaxBrightness.Evaluate(T, 20.0f);
 	State.PPSaturation = Data.PostProcess.Saturation.Evaluate(T, 1.0f);
 	State.PPContrast = Data.PostProcess.Contrast.Evaluate(T, 1.0f);
 	State.PPVignetteIntensity = Data.PostProcess.VignetteIntensity.Evaluate(T, 0.0f);
@@ -406,6 +408,10 @@ FTODWeatherState UTODWeatherSubsystem::BlendStates(const FTODWeatherState& From,
 	State.PPExposureBias = LerpFloat(From.PPExposureBias, To.PPExposureBias, A);
 	State.PPExposureMinBrightness = LerpFloat(From.PPExposureMinBrightness, To.PPExposureMinBrightness, A);
 	State.PPExposureMaxBrightness = LerpFloat(From.PPExposureMaxBrightness, To.PPExposureMaxBrightness, A);
+	// 曝光键位标记取并集：只要任一文件制作了曲线就允许覆盖；
+	// 未制作一侧的 fallback（引擎默认 -10/+20）参与插值，过渡自然。
+	State.bHasPPExposureMin = From.bHasPPExposureMin || To.bHasPPExposureMin;
+	State.bHasPPExposureMax = From.bHasPPExposureMax || To.bHasPPExposureMax;
 	State.PPSaturation = LerpFloat(From.PPSaturation, To.PPSaturation, A);
 	State.PPContrast = LerpFloat(From.PPContrast, To.PPContrast, A);
 	State.PPVignetteIntensity = LerpFloat(From.PPVignetteIntensity, To.PPVignetteIntensity, A);

@@ -173,10 +173,16 @@ struct TEST_DREAMFX_API FTODWeatherState
 	bool bPostProcessEnabled = false;
 	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
 	float PPExposureBias = 1.0f;
+	/** 曝光下限/上限曲线是否有关键帧：无键时应用方必须保持引擎默认（−10/+20 EV100），
+	 *  绝不能把 fallback 数值写上（旧 fallback -1/+3 是 UE4 亮度单位时代的危险值）。 */
 	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
-	float PPExposureMinBrightness = -1.0f;
+	bool bHasPPExposureMin = false;
 	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
-	float PPExposureMaxBrightness = 3.0f;
+	bool bHasPPExposureMax = false;
+	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
+	float PPExposureMinBrightness = -10.0f;
+	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
+	float PPExposureMaxBrightness = 20.0f;
 	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
 	float PPSaturation = 1.0f;
 	UPROPERTY(BlueprintReadOnly, Category="TOD|Weather")
