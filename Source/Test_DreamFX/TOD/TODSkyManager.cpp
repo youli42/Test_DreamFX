@@ -153,6 +153,13 @@ void ATODSkyManager::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	// 编辑器世界：动态预览（运行时时钟/天气子系统只存在于游戏世界，互不影响）。
+	if (const UWorld* PreviewWorld = GetWorld(); PreviewWorld && !PreviewWorld->IsGameWorld())
+	{
+		TickEditorPreview(DeltaSeconds);
+		return;
+	}
+
 	UTODSubsystem* TOD = GetTOD();
 	if (!TOD)
 	{
@@ -322,11 +329,10 @@ void ATODSkyManager::RefreshSkyPreview()
 	}
 
 	// 编辑器天气预览（issue #12）：编辑器世界中不存在天气子系统，所以
-	// 在此按 PreviewTimeHours/24 求值所选天气文件的曲线，并应用
-	// 运行时同样会应用的那些组。
-	FTODWeatherState PreviewState;
+	// 在此按 PreviewTimeHours/24 求值所选天气文件的曲线，缓存到 PreviewState。
+	// 未选/加载失败则回到中性状态。
+	PreviewState = FTODWeatherState();
 	FName PreviewWeatherName = NAME_None;
-	bool bHasPreviewWeather = false;
 	if (!PreviewWeatherProfile.IsNull())
 	{
 		const UTODWeatherProfile* Profile = PreviewWeatherProfile.Get();
@@ -340,7 +346,6 @@ void ATODSkyManager::RefreshSkyPreview()
 			const float DayProgress = FMath::Frac(FMath::Clamp(PreviewTimeHours, 0.0f, 24.0f) / 24.0f);
 			PreviewState = UTODWeatherSubsystem::EvaluateProfileAt(Profile->Data, DayProgress);
 			PreviewWeatherName = PreviewState.CurrentPreset;
-			bHasPreviewWeather = true;
 		}
 		else
 		{
@@ -348,7 +353,7 @@ void ATODSkyManager::RefreshSkyPreview()
 		}
 	}
 
-	if (!bHasPreviewWeather)
+	if (PreviewWeatherName.IsNone())
 	{
 		// 无预览天气：中性调制，沿用构造函数默认值。
 		if (HeightFog)
@@ -368,12 +373,7 @@ void ATODSkyManager::RefreshSkyPreview()
 	ComputeSunMoonState(PreviewTimeHours, SunRiseAzimuthDegrees, MoonPhaseOffsetDegrees, SunTiltDegrees,
 		SunElev, MoonElev, SunAzimuth, MoonAzimuth);
 
-	// 与运行时 Tick 相同的顺序：先天体（更新 CachedSunElevation），
-	// 再天气组（编辑器世界只生效雾/云/大气/风），最后时刻曝光——
-	// 编辑器拖动「预览时刻」即可直接看到夜间曝光 clamp，无需 PIE。
-	ApplySunMoon(PreviewTimeHours, PreviewState);
-	ApplyWeatherGroups(PreviewState);
-	ApplyTimeOfDayExposure();
+	ApplyEditorPreview();
 
 	const bool bExposureActive = ExposurePostProcess && ExposurePostProcess->Settings.bOverride_AutoExposureMinBrightness;
 	UE_LOG(LogTODSky, Log, TEXT("Sky preview: %.1fh sun elev %.2f @az %.0f, moon elev %.2f @az %.0f, weather '%s' sunScale %.2f, exposureMin %s"),
@@ -381,6 +381,51 @@ void ATODSkyManager::RefreshSkyPreview()
 		bExposureActive
 			? *FString::Printf(TEXT("%.1f EV100"), ExposurePostProcess->Settings.AutoExposureMinBrightness)
 			: TEXT("off (engine default)"));
+}
+
+bool ATODSkyManager::ShouldTickIfViewportsOnly() const
+{
+	// 动态预览：编辑器视口（LEVELTICK_ViewportsOnly）下也要每帧 Tick，
+	// 让天空随预览时钟连续演进；关闭时退回引擎默认（编辑器世界不 Tick）。
+	return bEnableDynamicPreview || Super::ShouldTickIfViewportsOnly();
+}
+
+void ATODSkyManager::TickEditorPreview(float DeltaSeconds)
+{
+	if (!bEnableDynamicPreview || DeltaSeconds <= 0.0f)
+	{
+		return; // 静态预览仍由「刷新天空预览」与属性变更驱动
+	}
+
+	// 预览时钟只存在于编辑器世界：运行时时钟归 UTODSubsystem，两者互不影响。
+	// 倍率语义：每真实秒推进 Scale 个游戏秒（360 ≈ 运行时默认一天 4 真实分钟）。
+	PreviewTimeHours = FMath::Wrap(PreviewTimeHours + DeltaSeconds * PreviewTimeScale / 3600.0f, 0.0f, 24.0f);
+
+	// 时钟在流动，所选天气文件的 24h 曲线必须跟着重求值。
+	if (!PreviewWeatherProfile.IsNull())
+	{
+		if (const UTODWeatherProfile* Profile = PreviewWeatherProfile.Get())
+		{
+			PreviewState = UTODWeatherSubsystem::EvaluateProfileAt(Profile->Data, FMath::Frac(PreviewTimeHours / 24.0f));
+		}
+	}
+
+	ApplyEditorPreview();
+}
+
+void ATODSkyManager::ApplyEditorPreview()
+{
+	const UWorld* World = GetWorld();
+	if (!World || World->IsGameWorld())
+	{
+		return;
+	}
+
+	// 与运行时 Tick 相同的顺序：天体（更新 CachedSunElevation）→
+	// 天气组（编辑器世界只生效雾/云/大气/风）→ 时刻曝光。
+	ApplySunMoon(PreviewTimeHours, PreviewState);
+	ApplyWeatherGroups(PreviewState);
+	ApplyTimeOfDayExposure();
 }
 
 void ATODSkyManager::UpdateWeatherApplication()
@@ -669,9 +714,11 @@ void ATODSkyManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, DayExposureMinEV100) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, DayExposureMaxEV100) ||
 		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, NightExposureMinEV100) ||
-		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, NightExposureMaxEV100))
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, NightExposureMaxEV100) ||
+		Changed == GET_MEMBER_NAME_CHECKED(ATODSkyManager, bEnableDynamicPreview))
 	{
-		// 曝光参数改动：编辑器里即时重放预览；运行时下一 tick 自然生效。
+		// 曝光/动态预览开关改动：编辑器里即时重放预览（开启即见当前时刻）；
+		// 运行时下一 tick 自然生效。PreviewTimeScale 无需刷新，下一 tick 生效。
 		RefreshSkyPreview();
 	}
 }

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "TODWeatherSubsystem.h"
 #include "TODSkyManager.generated.h"
 
 class UDirectionalLightComponent;
@@ -18,7 +19,6 @@ class APostProcessVolume;
 class UTODSubsystem;
 class UTODWeatherSubsystem;
 class UTODWeatherProfile;
-struct FTODWeatherState;
 
 /**
  * ATODSkyManager
@@ -45,6 +45,7 @@ public:
 	//~ AActor interface
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+	virtual bool ShouldTickIfViewportsOnly() const override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -68,6 +69,16 @@ public:
 	/** 按 PreviewTimeHours + PreviewWeatherProfile 在编辑器世界应用天体状态（细节面板按钮）。 */
 	UFUNCTION(CallInEditor, BlueprintCallable, Category="TOD|预览", meta=(DisplayName="刷新天空预览"))
 	void RefreshSkyPreview();
+
+	/** 编辑器动态预览：勾选后（非 PIE）天空随预览时钟连续演进，
+	 *  无需 PIE，也不影响运行时时钟（UTODSubsystem 仅存在于游戏世界）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|预览", meta=(DisplayName="动态预览"))
+	bool bEnableDynamicPreview = true;
+
+	/** 动态预览的时间倍率：预览时钟每真实秒推进 Scale 个游戏秒。
+	 *  1 = 现实速度；360 ≈ 运行时默认（一天 4 真实分钟）；0 = 暂停流动但仍持续刷新。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="TOD|预览", meta=(DisplayName="预览时间倍率", ClampMin="0.0"))
+	float PreviewTimeScale = 360.0f;
 
 	/** 编辑器专用的天气预览（issue #12）：挑选一个 UTODWeatherProfile 资产
 	 *  （WP_ClearSky、WP_Thunderstorm 等），该 Actor 就按此天气调制编辑器世界的光照
@@ -243,4 +254,15 @@ private:
 
 	/** ApplySunMoon 最近一次求值的太阳高度角正弦，供时刻曝光限制随晨昏过渡。 */
 	float CachedSunElevation = 0.0f;
+
+#if WITH_EDITOR
+	/** 编辑器世界的每帧预览推进：动态预览开启时推进预览时钟并连续应用天空。 */
+	void TickEditorPreview(float DeltaSeconds);
+
+	/** 把 PreviewState 应用到编辑器世界（天体→天气→时刻曝光，与运行时 Tick 同序）。 */
+	void ApplyEditorPreview();
+
+	/** 编辑器预览缓存的已求值天气状态：RefreshSkyPreview（静态）与动态预览共同维护。 */
+	FTODWeatherState PreviewState;
+#endif
 };
